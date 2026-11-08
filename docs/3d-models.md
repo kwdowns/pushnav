@@ -85,6 +85,18 @@ For running [PushNav headless](rpi-headless.md) on a **Raspberry Pi 3A+**, with 
 
 ---
 
+## Innomaker U20CAM-9281M Housing
+
+For the [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/), whose board is 32 × 32 mm instead of 25 mm. It is the v3 housing with a 58 mm shell and a 52 mm thread. The board stands on four 5 mm standoffs (4 × M2 × 6 screws), and the USB lead leaves through a slot in the back wall. It turns on the **v3 low mount** with the same M4 knob and insert. Print `housing_u20cam_base.stl`, `housing_u20cam_hood.stl` and, optionally, `housing_u20cam_cap.stl`, all without supports.
+
+Before printing, measure the tallest part on the back of the board with the lead plugged in. If it is over 4.5 mm, raise `pcb_standoff_height` in `housing_u20cam.scad`.
+
+## Tube Shoe and Pi 4 / 5 Tray
+
+For a scope whose only finder shoe is taken by its finder: `tube_shoe.stl` is a stick-on shoe curved to the tube that takes the camera mount's rail. It holds with 3M VHB tape (no drilling), a stop at one end, and two M4 × 16 thumbscrews in M4 × 6 inserts. `pi45_tray.stl` carries a Raspberry Pi 4 or 5 on the tube the same way, with 4 × M2.5 × 6 screws and slots for an optional 25 mm Velcro strap. Both default to an Apertura AD8 tube (`tube_od = 237`, measured 744 mm round); for another scope, set `tube_od` = circumference ÷ π. Print the shoe standing on its stop end with a brim, and no supports. Print the tray base down, with tree supports only under its curved underside.
+
+---
+
 ## Laser Pointer Holder
 
 ![Laser pointer holder with a 23 mm laser pointer in its cradle](assets/3d_model_laser_pointer_holder.png){ .render-sm }
@@ -186,6 +198,11 @@ Lock ring that secures the M12 lens at the correct focus position. Features a ta
 | [`housing_v4_mount.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/housing_v4_mount.stl) | Pi mount (optional, Pi 3A+) |
 | [`housing_v4_box_base.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/housing_v4_box_base.stl) | Pi 3A+ box base (optional) |
 | [`housing_v4_box_lid.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/housing_v4_box_lid.stl) | Pi 3A+ box lid (optional) |
+| [`housing_u20cam_base.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/housing_u20cam_base.stl) | Innomaker U20CAM-9281M housing |
+| [`housing_u20cam_hood.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/housing_u20cam_hood.stl) | Innomaker U20CAM-9281M hood |
+| [`housing_u20cam_cap.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/housing_u20cam_cap.stl) | Innomaker U20CAM-9281M cap (optional) |
+| [`tube_shoe.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/tube_shoe.stl) | Stick-on tube shoe (AD8) |
+| [`pi45_tray.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/pi45_tray.stl) | Stick-on Pi 4 / 5 tray (AD8) |
 | [`laser_pointer_holder.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/laser_pointer_holder.stl) | Laser pointer holder |
 | [`camera_base.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/camera_base.stl) | Spare camera base |
 | [`lock_ring.stl`](https://github.com/meridianfield/pushnav/raw/main/hardware/3d_models/stls/lock_ring.stl) | M12 lock ring |

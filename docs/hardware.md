@@ -36,6 +36,7 @@ These OV9281-based USB cameras are recognized automatically (matched by USB VID/
 | [Waveshare OV9281 1MP Mono USB Camera](https://www.waveshare.com/ov9281-1mp-usb-camera-a.htm) [$26] | Supported (reference) |
 | Arducam OV9281 | Beta — awaiting results |
 | DECXIN OV9281 | Beta — awaiting results |
+| [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/) | Beta — awaiting results. 32 × 32 mm board, so it needs its own housing (`housing_u20cam.scad`). Ships with a 2.8 mm wide-angle lens; replace it with the 25 mm lens below |
 
 **Lens**: [M12 Mount 25mm F2.4 Lens](https://www.seeedstudio.com/5MP-25mm-lens-p-5579.html) [$15]
 

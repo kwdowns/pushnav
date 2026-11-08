@@ -69,6 +69,40 @@ Only for running PushNav headless on a **Raspberry Pi 3A+**; the box is sized fo
 
 The box is generated with [YAPP_Box](https://github.com/mrWheel/YAPP_Box) (MIT, vendored under [`vendor/YAPP_Box/`](vendor/YAPP_Box/)).
 
+### Innomaker U20CAM-9281M housing (`housing_u20cam.scad`)
+
+For the [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/), an OV9281 camera on a bigger board: 32 × 32 mm with M2 holes on a 28 mm square, no white base, and a side-entry 1.25 mm 5-pin USB connector on the back of the board. It is the v3 housing (it `include`s `housing_v3.scad`) with a 58 mm shell and a 52 mm thread. The board stands on four 5 mm standoffs, and the lead leaves through a slot in the back wall at standoff height. The flat bottom, Ø30 seat face and M4 knob/insert are v3's, so it fits the **v3 low mount** (`housing_v3_mount.stl`). The hood keeps the same baffle and 1.25" cap band.
+
+| Part | STL | Flag |
+|------|-----|------|
+| Camera housing | `housing_u20cam_base.stl` | `U20_RENDER_BASE` |
+| Hood | `housing_u20cam_hood.stl` | `U20_RENDER_HOOD` |
+| Dust cap (optional) | `housing_u20cam_cap.stl` | `U20_RENDER_CAP` |
+
+**Before printing**, measure the tallest part on the back of the board with the lead plugged in, and set `pcb_standoff_height` to a little more than that if it is over 4.5 mm.
+
+**Hardware:** 4 × M2 × 6 screws (self-tapping, or machine screws that cut their own thread in the 1.7 mm pilots), plus v3's M4 × 20 star knob and M4 × 6 insert.
+
+**Assembly:** unplug the lead from the board, push the plug through the slot from outside, plug it back in, and screw the board down. Any of the four board orientations works, because the housing turns on its seat.
+
+**Printing:** housing bottom face down, hood lip-thread end down, cap top down. No supports: the cable slot roof is a 12 mm bridge, and the back flat ends in a 45° chamfer.
+
+### Tube Shoe (`tube_shoe.scad`)
+
+A second finder shoe, for scopes whose only shoe is taken by the finder. It is a female dovetail that takes the camera mounts' rail, with a base curved to the tube, and it sticks on with 3M VHB foam tape, so there is no drilling. The rail slides in against a stop, so the camera returns to the same place each night, and two M4 thumbscrews lock it. The default `tube_od = 237` is a measured Apertura AD8 (744 mm round); for other tubes, set `tube_od` = circumference ÷ π.
+
+**Hardware:** 2 × M4 × 6 heat-set inserts (5.9 mm knurl), 2 × M4 × 16 thumbscrews, and a ~50 × 45 mm piece of VHB tape (e.g. 5952). Clean the tube with isopropyl alcohol, press hard for 30 s, and leave it a day before loading it.
+
+**Printing:** stands on its stop end, so every face is vertical and it needs no supports. It is tall for its footprint (49 mm on 52 × 15 mm), so add a 5 mm brim. PETG is preferred.
+
+### Pi 4 / Pi 5 Tube Tray (`pi45_tray.scad`)
+
+An open tray that carries a Raspberry Pi 4 or 5 on the tube for [PushNav headless](../../docs/rpi-headless.md), with the same curved VHB base as the tube shoe and slots for an optional 25 mm Velcro strap round the tube. The open sides keep every port reachable. On a Pi 5, fit the Active Cooler.
+
+**Hardware:** 4 × M2.5 × 6 screws (self-tapping into 2.2 mm pilots), VHB tape about 90 × 50 mm, and optionally a 25 mm Velcro strap.
+
+**Printing:** base down, with tree supports set to "on build plate only"; they are needed only under the shallow curved underside. PETG is preferred.
+
 ### Laser Pointer Holder (`laser_pointer_holder.scad`)
 
 ![Laser pointer holder](../../docs/assets/3d_model_laser_pointer_holder.png)
@@ -128,7 +162,13 @@ All in [`stls/`](stls/).
 | `housing_v4_mount.stl`    | Pi mount: dovetail, riser, stem and seat (optional, Pi 3A+) |
 | `housing_v4_box_base.stl` | Pi 3A+ box base (optional) |
 | `housing_v4_box_lid.stl`  | Pi 3A+ box lid (optional) |
+| **Innomaker U20CAM-9281M** | |
+| `housing_u20cam_base.stl` | Camera housing for the 32 mm board (fits the v3 low mount) |
+| `housing_u20cam_hood.stl` | Hood with 52 mm thread and 1.25" cap band |
+| `housing_u20cam_cap.stl`  | Fallback slip-on cap (optional) |
 | **Accessories** | |
+| `tube_shoe.stl`            | Stick-on finder shoe for the tube (AD8 curvature) |
+| `pi45_tray.stl`            | Stick-on tray for a Pi 4 / Pi 5 (AD8 curvature) |
 | `laser_pointer_holder.stl` | Laser Pointer Holder |
 | `camera_base.stl`          | Spare camera base (replaces the module's white base) |
 | `lock_ring.stl`            | M12 Lock Ring |
@@ -183,6 +223,20 @@ for part in MOUNT BASE HOOD CAP; do
   done
   openscad -o "stls/housing_v3_$(echo $part | tr A-Z a-z).stl" $args housing_v3.scad
 done
+
+# Innomaker U20CAM-9281M housing, hood and cap
+for part in BASE HOOD CAP; do
+  args=""
+  for p in BASE HOOD CAP; do
+    [ "$p" = "$part" ] && v=true || v=false
+    args="$args -D U20_RENDER_$p=$v"
+  done
+  openscad -o "stls/housing_u20cam_$(echo $part | tr A-Z a-z).stl" $args housing_u20cam.scad
+done
+
+# Tube shoe and Pi 4/5 tray — set your tube with -D tube_od=<mm>
+openscad -o stls/tube_shoe.stl tube_shoe.scad
+openscad -o stls/pi45_tray.stl pi45_tray.scad
 
 # Accessories
 openscad -o stls/laser_pointer_holder.stl laser_pointer_holder.scad

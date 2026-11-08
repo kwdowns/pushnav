@@ -334,7 +334,7 @@ the `.deb` wasn't on the card. Log in with `ssh pi@192.168.77.1`, check
 
 **The log says "Waiting for camera".** No USB camera is detected. Check the
 cable and run `lsusb`: a supported camera appears as `32e6:9251`,
-`0c45:6366` or `1bcf:2cd1`. A camera with a different ID can be added in
+`0c45:6366`, `1bcf:2cd1` or `0c45:636d`. A camera with a different ID can be added in
 `config.json` as `"camera": {"extra_camera_ids": ["1234:abcd"], ...}`
 (then restart the service).
 
