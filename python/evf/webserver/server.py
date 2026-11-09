@@ -23,6 +23,7 @@ loop.
 """
 
 import asyncio
+import io
 import json
 import logging
 import math
@@ -31,6 +32,7 @@ import time
 from typing import Callable, Protocol
 
 from aiohttp import WSCloseCode, web
+from PIL import Image
 
 from evf.config.manager import ConfigManager
 from evf.engine.frame_buffer import LatestFrame
@@ -49,10 +51,14 @@ _MAX_MJPEG_CLIENTS = 4
 _MJPEG_BOUNDARY = b"frame"
 _MJPEG_INTERVAL = 0.1  # 10 Hz
 
-# Camera image geometry — must match the React UI's overlay assumptions.
+# Camera image geometry. The horizontal FOV is set by the lens and the
+# sensor width; the frame size is read from the frames themselves (see
+# WebServer._frame_dims): 1280x800 for the OV9281's full frame, 1280x720 for
+# modules that only offer its centre crop, or a dev-mode sample image's size.
+# The React UI takes image_w / image_h from the payload.
 _FOV_H = 8.86   # horizontal FOV in degrees
-_IMG_W = 1280
-_IMG_H = 720
+_DEFAULT_IMG_W = 1280   # used until the first frame arrives
+_DEFAULT_IMG_H = 800
 
 
 class EngineActions(Protocol):
@@ -77,15 +83,17 @@ class EngineActions(Protocol):
     ) -> None: ...
 
 
-def _compute_origin(config: ConfigManager) -> tuple[float, float]:
+def _compute_origin(
+    config: ConfigManager, img_w: int, img_h: int,
+) -> tuple[float, float]:
     """Pixel position of the sync offset (pointing center) in image coords.
 
     Falls back to image center when no sync calibration is available.
     """
-    cx, cy = _IMG_W / 2.0, _IMG_H / 2.0
+    cx, cy = img_w / 2.0, img_h / 2.0
     d_body = config.sync_d_body
     if d_body is not None and d_body[2] > 0.1:
-        scale = _IMG_W / (2.0 * math.tan(math.radians(_FOV_H / 2.0)))
+        scale = img_w / (2.0 * math.tan(math.radians(_FOV_H / 2.0)))
         cx += (-d_body[0] / d_body[2]) * scale
         cy += (-d_body[1] / d_body[2]) * scale
     return cx, cy
@@ -163,6 +171,8 @@ class WebServer:
         self._goto_target = goto_target
         self._config = config
         self._frame_buffer = frame_buffer
+        self._img_dims: tuple[int, int] = (_DEFAULT_IMG_W, _DEFAULT_IMG_H)
+        self._img_dims_frame_id: int | None = None
         self._solver_failures = solver_failures
         self._stellarium_object = stellarium_object
         self._camera_controls = camera_controls
@@ -564,14 +574,31 @@ class WebServer:
 
     # -- payload --------------------------------------------------------------
 
+    def _frame_dims(self) -> tuple[int, int]:
+        """(width, height) of the latest frame, or the last size seen.
+
+        Reads only the JPEG header, and only once per new frame id.
+        """
+        if self._frame_buffer is not None:
+            jpeg, _ts, frame_id = self._frame_buffer.get()
+            if jpeg and frame_id != self._img_dims_frame_id:
+                self._img_dims_frame_id = frame_id
+                try:
+                    with Image.open(io.BytesIO(jpeg)) as img:
+                        self._img_dims = img.size
+                except Exception as exc:  # noqa: BLE001 — keep the last good size
+                    logger.debug("Could not read frame size: %s", exc)
+        return self._img_dims
+
     def _build_payload(self) -> dict:
         state = self._state_machine.state
         snap = self._pointing.read()
         target = self._goto_target.read()
         failures = self._solver_failures() if self._solver_failures else 0
-        origin_x, origin_y = _compute_origin(self._config)
-        dx_off = origin_x - _IMG_W / 2.0
-        dy_off = origin_y - _IMG_H / 2.0
+        img_w, img_h = self._frame_dims()
+        origin_x, origin_y = _compute_origin(self._config, img_w, img_h)
+        dx_off = origin_x - img_w / 2.0
+        dy_off = origin_y - img_h / 2.0
 
         pointing_data = {
             "valid": snap.valid,
@@ -586,7 +613,9 @@ class WebServer:
             ),
         }
 
-        nav_data = self._build_nav(snap, target, origin_x, origin_y, dx_off, dy_off)
+        nav_data = self._build_nav(
+            snap, target, origin_x, origin_y, dx_off, dy_off, img_w, img_h,
+        )
 
         controls = self._camera_controls() if self._camera_controls else []
         sync_blk = self._sync_state() if self._sync_state else {
@@ -621,8 +650,8 @@ class WebServer:
             "nav": nav_data,
             "origin_x": origin_x,
             "origin_y": origin_y,
-            "image_w": _IMG_W,
-            "image_h": _IMG_H,
+            "image_w": img_w,
+            "image_h": img_h,
             "finder_rotation": self._config.finder_rotation,
             "fov_h_deg": _FOV_H,
             "has_calibration": self._config.has_calibration,
@@ -643,7 +672,9 @@ class WebServer:
             ),
         }
 
-    def _build_nav(self, snap, target, origin_x, origin_y, dx_off, dy_off) -> dict | None:
+    def _build_nav(
+        self, snap, target, origin_x, origin_y, dx_off, dy_off, img_w, img_h,
+    ) -> dict | None:
         if not target.active:
             return None
 
@@ -669,7 +700,7 @@ class WebServer:
         nav = compute_navigation(
             snap.ra_j2000, snap.dec_j2000, snap.roll,
             target.ra_j2000, target.dec_j2000,
-            _FOV_H, _IMG_W, _IMG_H,
+            _FOV_H, img_w, img_h,
         )
 
         # Apply sync offset to in-FOV pixel coords so the React side renders the
@@ -687,8 +718,8 @@ class WebServer:
         in_fov = (
             offset_pixel_x is not None
             and offset_pixel_y is not None
-            and 0 <= offset_pixel_x < _IMG_W
-            and 0 <= offset_pixel_y < _IMG_H
+            and 0 <= offset_pixel_x < img_w
+            and 0 <= offset_pixel_y < img_h
         )
 
         edge_x = edge_y = edge_angle = None
@@ -696,17 +727,17 @@ class WebServer:
             if offset_pixel_x is not None:
                 edge_x, edge_y, edge_angle = edge_arrow_position(
                     offset_pixel_x, offset_pixel_y,
-                    _IMG_W, _IMG_H, margin=68,
+                    img_w, img_h, margin=68,
                     origin_x=origin_x, origin_y=origin_y,
                 )
             else:
                 # Target behind camera — derive direction from camera_angle_deg
-                far = max(_IMG_W, _IMG_H) * 10.0
+                far = max(img_w, img_h) * 10.0
                 rad = math.radians(nav.camera_angle_deg)
                 far_x = origin_x + far * math.sin(rad)
                 far_y = origin_y - far * math.cos(rad)
                 edge_x, edge_y, edge_angle = edge_arrow_position(
-                    far_x, far_y, _IMG_W, _IMG_H, margin=68,
+                    far_x, far_y, img_w, img_h, margin=68,
                     origin_x=origin_x, origin_y=origin_y,
                 )
 

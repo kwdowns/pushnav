@@ -1,6 +1,9 @@
 """Tests for /ws JSON payload schema."""
 
+import io
 import json
+
+from PIL import Image
 
 from evf.config.manager import ConfigManager
 from evf.engine.frame_buffer import LatestFrame
@@ -60,3 +63,39 @@ def test_payload_contains_location_field(tmp_path, monkeypatch):
     assert "location" in payload
     assert payload["location"]["source"] == "manual"
     assert payload["location"]["latitude"] == 13.0878
+
+
+def _jpeg(w: int, h: int) -> bytes:
+    buf = io.BytesIO()
+    Image.new("L", (w, h), 0).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_payload_image_size_follows_frames(tmp_path, monkeypatch):
+    """image_w / image_h and the uncalibrated origin come from the frames."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    fb = LatestFrame()
+    ws = WebServer(
+        PointingState(), StateMachine(), GotoTarget(),
+        ConfigManager(config_dir=tmp_path / "evf-config"),
+        frame_buffer=fb,
+    )
+
+    # No frame yet: the OV9281's full frame
+    payload = ws._build_payload()
+    assert (payload["image_w"], payload["image_h"]) == (1280, 800)
+
+    fb.set(_jpeg(1280, 720), 0.0, 1)
+    payload = ws._build_payload()
+    assert (payload["image_w"], payload["image_h"]) == (1280, 720)
+    assert (payload["origin_x"], payload["origin_y"]) == (640.0, 360.0)
+
+    fb.set(_jpeg(1280, 800), 0.1, 2)
+    payload = ws._build_payload()
+    assert (payload["image_w"], payload["image_h"]) == (1280, 800)
+    assert (payload["origin_x"], payload["origin_y"]) == (640.0, 400.0)
+
+    # A frame that isn't a JPEG keeps the last good size
+    fb.set(b"not a jpeg", 0.2, 3)
+    payload = ws._build_payload()
+    assert (payload["image_w"], payload["image_h"]) == (1280, 800)

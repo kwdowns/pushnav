@@ -52,7 +52,10 @@ guard capture.start(allowlist: cameraIDs) else {
 
 // MARK: - 4. Start TCP server
 
-let controlManager = ControlManager(uvc: uvc)
+// Innomaker U20CAM-9281M: real gain and longer exposures (nil for other cameras)
+let u20Quirk = U20CamQuirk(uvc: uvc)
+
+let controlManager = ControlManager(uvc: uvc, u20: u20Quirk)
 let server = TCPServer(port: defaultPort)
 
 var frameTimer: DispatchSourceTimer?
@@ -67,8 +70,8 @@ server.onClientConnected = {
         "backend_version": serverVersion,
         "camera_model": "openaicam",
         "stream_format": "MJPEG",
-        "default_width": 1280,
-        "default_height": 720,
+        "default_width": Int(capture.captureWidth),
+        "default_height": Int(capture.captureHeight),
         "default_fps": 30,
     ]
     server.sendJSON(type: .hello, object: hello)

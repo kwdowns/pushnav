@@ -95,10 +95,16 @@ Example payload:
   "camera_model": "openaicam",
   "stream_format": "MJPEG",
   "default_width": 1280,
-  "default_height": 720,
+  "default_height": 800,
   "default_fps": 30
 }
 ```
+
+`default_width` / `default_height` are the capture size the server
+negotiated. All three servers prefer the OV9281's full 1280x800 frame and
+fall back to 1280x720 (a centre crop of it, at the same pixel scale) for
+modules that don't offer it. Clients should take the size of each frame
+from the JPEG itself rather than assume one.
 
 The `camera_model` value is backend-specific:
 - macOS (Swift) sends the hardcoded string `"openaicam"`.
@@ -170,6 +176,32 @@ Rules:
   on every SET_CONTROL — a superset of the spec requirement that simplifies
   implementation and gives the UI a consistent update cadence.
 - App builds UI controls dynamically from this list.
+- `unit` tells the UI how to label the value: `"100us"` (exposure in 100 µs,
+  Linux/macOS), `"log2s"` (exposure as log2 seconds, Windows DirectShow),
+  `"x10"` (gain in tenths of x, so 45 is 4.5×), or `"raw"` (shown as is).
+- Optional `display_scale` (number, default 1) multiplies an exposure's
+  displayed time, for a camera whose real exposure differs from the UVC
+  value it accepts.
+
+Camera quirk — Innomaker U20CAM-9281M (0C45:636D, Sonix SN9C286 bridge):
+its firmware ignores UVC gain and caps exposure at one stock frame
+(~97 ms). All three servers work around it through the Sonix vendor
+extension unit (unit 3, selector 1 = bridge XDATA read/write):
+- `gain` is reported with `unit: "x10"`, range 10–155 (1.0–15.5× real
+  analog gain), and applied by writing the firmware's gain variable (RAM
+  0x08F0:0x08F1 = gain × 512). The firmware resets it on every exposure
+  change, so the server re-applies it on a 500 ms tick.
+- On the same tick the server sets the sensor's frame length (OV9281 VTS,
+  0x380E/0x380F, through the bridge's I2C controller) to fit the firmware's
+  exposure in lines, so long exposures are no longer clamped; the frame rate
+  drops to match (about 1 fps at the longest setting). It re-sends the frame
+  length every 10 s because it cannot be read back.
+- The exposure control carries `display_scale: 2`: at the pinned 10 fps a
+  sensor line takes ~110 µs, not the 54.6 µs the firmware assumes, so real
+  exposure is about twice the UVC value.
+- Writes are limited to those RAM and I2C registers; the bridge's SPI flash
+  controller (0x8E00–0x8EFF) and the flash selector (3) are never used. The
+  changes are volatile: unplugging the camera restores stock behaviour.
 
 #### 0x03 ERROR
 Payload: UTF-8 string

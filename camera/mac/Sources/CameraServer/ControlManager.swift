@@ -24,9 +24,11 @@ import Foundation
 
 class ControlManager {
     private let uvc: UVCController
+    private let u20: U20CamQuirk?     // Innomaker U20CAM: gain via firmware RAM
 
-    init(uvc: UVCController) {
+    init(uvc: UVCController, u20: U20CamQuirk? = nil) {
         self.uvc = uvc
+        self.u20 = u20
     }
 
     /// Build the CONTROL_INFO JSON dictionary from current UVC state.
@@ -35,7 +37,7 @@ class ControlManager {
 
         if uvc.exposureTimeRange.capable {
             let curExposure = uvc.getExposureTime()
-            controls.append([
+            var exposure: [String: Any] = [
                 "id": "exposure",
                 "label": "Exposure",
                 "type": "int",
@@ -44,10 +46,25 @@ class ControlManager {
                 "step": uvc.exposureTimeRange.res,
                 "cur": curExposure,
                 "unit": "100us",
-            ])
+            ]
+            if u20 != nil {
+                exposure["display_scale"] = 2   // U20CAM: real exposure ~2x the UVC value
+            }
+            controls.append(exposure)
         }
 
-        if uvc.gainRange.capable {
+        if let u20 = u20 {
+            controls.append([
+                "id": "gain",
+                "label": "Gain",
+                "type": "int",
+                "min": U20CamQuirk.gainMin,
+                "max": U20CamQuirk.gainMax,
+                "step": 1,
+                "cur": u20.currentGain,
+                "unit": "x10",                  // tenths of x (real gain)
+            ])
+        } else if uvc.gainRange.capable {
             let curGain = uvc.getGain()
             controls.append([
                 "id": "gain",
@@ -72,8 +89,13 @@ class ControlManager {
             print("SET_CONTROL: exposure = \(value) → actual = \(uvc.getExposureTime())")
             return true
         case "gain":
-            uvc.setGain(value)
-            print("SET_CONTROL: gain = \(value) → actual = \(uvc.getGain())")
+            if let u20 = u20 {
+                u20.setGain(value)
+                print("SET_CONTROL: gain = \(value) → actual = \(u20.currentGain) (x0.1)")
+            } else {
+                uvc.setGain(value)
+                print("SET_CONTROL: gain = \(value) → actual = \(uvc.getGain())")
+            }
             return true
         default:
             fputs("WARNING: Unknown control ID: \(id)\n", stderr)

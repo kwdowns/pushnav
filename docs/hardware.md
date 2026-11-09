@@ -36,11 +36,20 @@ These OV9281-based USB cameras are recognized automatically (matched by USB VID/
 | [Waveshare OV9281 1MP Mono USB Camera](https://www.waveshare.com/ov9281-1mp-usb-camera-a.htm) [$26] | Supported (reference) |
 | Arducam OV9281 | Beta — awaiting results |
 | DECXIN OV9281 | Beta — awaiting results |
-| [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/) | Beta — awaiting results. 32 × 32 mm board, so it needs its own housing (`housing_u20cam.scad`). Ships with a 2.8 mm wide-angle lens; replace it with the 25 mm lens below |
+| [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/) | Beta — awaiting results. 32 × 32 mm board, so it needs its own housing (`housing_u20cam.scad`). Ships with a 2.8 mm wide-angle lens; replace it with the 25 mm lens below. Its firmware ignores the standard gain control and caps exposure near 100 ms; PushNav works around both (see below) |
 
 **Lens**: [M12 Mount 25mm F2.4 Lens](https://www.seeedstudio.com/5MP-25mm-lens-p-5579.html) [$15]
 
 These are reference suppliers. The **OV9281** module itself is widely sold by Arducam, Innomaker, AliExpress and others, and any M12 25mm F/2.4 lens with the correct mount works. If a link above goes dead, search the sensor name (`OV9281`) and lens specs and pick any reputable seller — the parts themselves are commodity.
+
+### Innomaker U20CAM-9281M: gain and exposure
+
+The U20CAM uses a Sonix SN9C286 USB bridge whose firmware accepts the standard UVC gain control but never passes it to the sensor (which stays at 2×), and which lowers the frame rate by lengthening each line rather than the frame, so exposures stop getting longer at about 100 ms. PushNav detects the camera by its USB ID and works around both through the bridge's vendor extension unit:
+
+- **Gain** becomes a real analog gain from 1.0× to 15.5×, shown as e.g. "8.0×".
+- **Exposure** runs to about 1 s: PushNav stretches the sensor's frame to fit the exposure, so the preview slows to about 1 frame per second at the longest settings. The exposure the app shows is the real one, about twice the value the camera reports.
+
+Nothing is written to the camera's firmware; unplugging it restores its stock behaviour.
 
 ## Why This Camera and Lens
 

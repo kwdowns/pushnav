@@ -47,6 +47,9 @@ export interface ControlDescriptor {
   value?: number;  // legacy alias kept for back-compat
   unit?: string;
   type?: string;
+  // Multiplier from the reported exposure to the real one (e.g. 2 for the
+  // Innomaker U20CAM, whose firmware under-reports exposure). Default 1.
+  display_scale?: number;
 }
 
 export interface SyncCandidate {

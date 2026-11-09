@@ -95,6 +95,92 @@ DECLARE_INTERFACE_(ISampleGrabber, IUnknown) {
 };
 
 /* ------------------------------------------------------------------ */
+/* ISampleGrabberCB — frame delivery                                   */
+/*                                                                     */
+/* The grabber calls BufferCB on the DirectShow streaming thread once  */
+/* per frame.  We copy the frame into latest_frame and bump frame_seq, */
+/* so the TCP loop sends each frame exactly once.  Frames whose bytes  */
+/* equal the previous frame's (all-black frames at a very short        */
+/* exposure or with the lens capped) still count as new frames; the    */
+/* old GetCurrentBuffer polling had to guess by content and dropped    */
+/* them, which starved the command loop and hung the server.           */
+/* ------------------------------------------------------------------ */
+
+/* {0579154A-2B53-4994-B0D0-E773148EFF85} */
+static const GUID IID_ISampleGrabberCB =
+    {0x0579154A, 0x2B53, 0x4994,
+     {0xB0, 0xD0, 0xE7, 0x73, 0x14, 0x8E, 0xFF, 0x85}};
+
+typedef struct GrabberCB GrabberCB;
+typedef struct {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(GrabberCB *This, REFIID riid, void **ppv);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(GrabberCB *This);
+    ULONG   (STDMETHODCALLTYPE *Release)(GrabberCB *This);
+    HRESULT (STDMETHODCALLTYPE *SampleCB)(GrabberCB *This, double t, IMediaSample *pSample);
+    HRESULT (STDMETHODCALLTYPE *BufferCB)(GrabberCB *This, double t, BYTE *pBuffer, long len);
+} GrabberCBVtbl;
+struct GrabberCB { const GrabberCBVtbl *lpVtbl; };
+
+static CRITICAL_SECTION frame_lock;
+static HANDLE           frame_event  = NULL;  /* auto-reset, set per new frame */
+static unsigned char   *latest_frame = NULL;
+static long             latest_len   = 0;
+static long             latest_cap   = 0;
+static LONG             frame_seq    = 0;     /* bumped per delivered frame */
+
+static HRESULT STDMETHODCALLTYPE cb_QueryInterface(GrabberCB *This, REFIID riid,
+                                                   void **ppv)
+{
+    if (IsEqualGUID(riid, &IID_IUnknown) ||
+        IsEqualGUID(riid, &IID_ISampleGrabberCB)) {
+        *ppv = This;
+        return S_OK;
+    }
+    *ppv = NULL;
+    return E_NOINTERFACE;
+}
+
+/* Static object: reference counting is a no-op. */
+static ULONG STDMETHODCALLTYPE cb_AddRef(GrabberCB *This)  { (void)This; return 2; }
+static ULONG STDMETHODCALLTYPE cb_Release(GrabberCB *This) { (void)This; return 1; }
+
+static HRESULT STDMETHODCALLTYPE cb_SampleCB(GrabberCB *This, double t,
+                                             IMediaSample *pSample)
+{
+    (void)This; (void)t; (void)pSample;
+    return E_NOTIMPL;  /* we register for BufferCB only */
+}
+
+static HRESULT STDMETHODCALLTYPE cb_BufferCB(GrabberCB *This, double t,
+                                             BYTE *pBuffer, long len)
+{
+    (void)This; (void)t;
+    if (!pBuffer || len <= 0)
+        return S_OK;
+    EnterCriticalSection(&frame_lock);
+    if (len > latest_cap) {
+        unsigned char *p = (unsigned char *)realloc(latest_frame, (size_t)len);
+        if (!p) {
+            LeaveCriticalSection(&frame_lock);
+            return S_OK;
+        }
+        latest_frame = p;
+        latest_cap = len;
+    }
+    memcpy(latest_frame, pBuffer, (size_t)len);
+    latest_len = len;
+    frame_seq++;
+    LeaveCriticalSection(&frame_lock);
+    SetEvent(frame_event);
+    return S_OK;
+}
+
+static const GrabberCBVtbl grabber_cb_vtbl = {
+    cb_QueryInterface, cb_AddRef, cb_Release, cb_SampleCB, cb_BufferCB,
+};
+static GrabberCB grabber_cb = { &grabber_cb_vtbl };
+
+/* ------------------------------------------------------------------ */
 /* Protocol constants                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -111,9 +197,20 @@ DECLARE_INTERFACE_(ISampleGrabber, IUnknown) {
 /* Configuration                                                       */
 /* ------------------------------------------------------------------ */
 
-#define CAPTURE_W    1280
-#define CAPTURE_H    720
 #define SERVER_PORT  8764
+
+/* Capture sizes, in order of preference.  The OV9281 sensor is 1280x800;
+ * 1280x720 is a centre crop of it (same pixel scale, so the solver's FOV
+ * estimate holds for both), kept for modules that don't offer the full
+ * frame.  open_camera() sets capture_w / capture_h to the size it got. */
+static const struct { int w, h; } CAPTURE_SIZES[] = {
+    {1280, 800},
+    {1280, 720},
+};
+#define NUM_CAPTURE_SIZES (sizeof(CAPTURE_SIZES) / sizeof(CAPTURE_SIZES[0]))
+
+static int capture_w = 1280;
+static int capture_h = 800;
 
 /* ------------------------------------------------------------------ */
 /* DirectShow state                                                    */
@@ -134,6 +231,13 @@ static int use_mjpeg = 1;
 
 /* Camera model name */
 static char camera_model[128] = "Unknown";
+
+/* Innomaker U20CAM-9281M: needs the runtime gain / frame-length quirk
+ * (see "Innomaker U20CAM-9281M quirk" below). Set by find_device(). */
+#define U20_VID 0x0C45
+#define U20_PID 0x636D
+static int quirk_u20 = 0;
+static void u20_close(void);
 
 /* Control ranges */
 typedef struct {
@@ -339,6 +443,7 @@ static HRESULT find_device(IBaseFilter **ppFilter, char *seen, size_t seen_len)
                     ICreateDevEnum_Release(pSysDevEnum);
 
                     if (SUCCEEDED(hr)) {
+                        quirk_u20 = (vid == U20_VID && pid == U20_PID);
                         fprintf(stderr, "Found camera '%s' (%04X:%04X)\n",
                                 camera_model, vid, pid);
                         return S_OK;
@@ -576,18 +681,32 @@ static int open_camera(void)
              &MEDIATYPE_Video, pCamFilter, &IID_IAMStreamConfig,
              (void **)&pConfig);
 
-    /* Try MJPEG first, then YUYV */
+    /* Try MJPEG at each preferred size, then YUYV */
     use_mjpeg = 1;
     if (pConfig) {
-        if (try_format(pConfig, &MEDIASUBTYPE_MJPG, CAPTURE_W, CAPTURE_H)) {
-            fprintf(stderr, "Using MJPEG capture %dx%d\n", CAPTURE_W, CAPTURE_H);
-        } else if (try_format(pConfig, &MEDIASUBTYPE_YUY2, CAPTURE_W, CAPTURE_H)) {
-            use_mjpeg = 0;
-            fprintf(stderr, "MJPEG not available, using YUY2 capture %dx%d\n",
-                    CAPTURE_W, CAPTURE_H);
-        } else {
-            fprintf(stderr, "Warning: Could not set preferred format, using default\n");
+        int found = 0;
+        for (size_t i = 0; !found && i < NUM_CAPTURE_SIZES; i++) {
+            if (try_format(pConfig, &MEDIASUBTYPE_MJPG,
+                           CAPTURE_SIZES[i].w, CAPTURE_SIZES[i].h)) {
+                capture_w = CAPTURE_SIZES[i].w;
+                capture_h = CAPTURE_SIZES[i].h;
+                found = 1;
+                fprintf(stderr, "Using MJPEG capture %dx%d\n", capture_w, capture_h);
+            }
         }
+        for (size_t i = 0; !found && i < NUM_CAPTURE_SIZES; i++) {
+            if (try_format(pConfig, &MEDIASUBTYPE_YUY2,
+                           CAPTURE_SIZES[i].w, CAPTURE_SIZES[i].h)) {
+                capture_w = CAPTURE_SIZES[i].w;
+                capture_h = CAPTURE_SIZES[i].h;
+                use_mjpeg = 0;
+                found = 1;
+                fprintf(stderr, "MJPEG not available, using YUY2 capture %dx%d\n",
+                        capture_w, capture_h);
+            }
+        }
+        if (!found)
+            fprintf(stderr, "Warning: Could not set preferred format, using default\n");
         IAMStreamConfig_Release(pConfig);
     }
 
@@ -597,8 +716,20 @@ static int open_camera(void)
     mt.majortype = MEDIATYPE_Video;
     mt.subtype = use_mjpeg ? MEDIASUBTYPE_MJPG : MEDIASUBTYPE_YUY2;
     pGrabber->lpVtbl->SetMediaType(pGrabber, &mt);
-    pGrabber->lpVtbl->SetBufferSamples(pGrabber, TRUE);
+    pGrabber->lpVtbl->SetBufferSamples(pGrabber, FALSE);
     pGrabber->lpVtbl->SetOneShot(pGrabber, FALSE);
+
+    /* Deliver frames through BufferCB (see grabber_cb above) */
+    if (frame_event == NULL) {
+        InitializeCriticalSection(&frame_lock);
+        frame_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        if (frame_event == NULL) { fprintf(stderr, "Failed to create frame event\n"); return -1; }
+    }
+    hr = pGrabber->lpVtbl->SetCallback(pGrabber, &grabber_cb, 1 /* BufferCB */);
+    if (FAILED(hr)) {
+        fprintf(stderr, "Failed to set grabber callback (hr=0x%08lx)\n", hr);
+        return -1;
+    }
 
     /* Add grabber to graph */
     hr = IGraphBuilder_AddFilter(pGraph, pGrabFilter, L"Grabber");
@@ -678,7 +809,12 @@ static void close_camera(void)
     if (pControl) { IMediaControl_Stop(pControl); IMediaControl_Release(pControl); pControl = NULL; }
     if (pProcAmp) { IAMVideoProcAmp_Release(pProcAmp); pProcAmp = NULL; }
     if (pCamCtrl) { IAMCameraControl_Release(pCamCtrl); pCamCtrl = NULL; }
-    if (pGrabber) { pGrabber->lpVtbl->Release(pGrabber); pGrabber = NULL; }
+    u20_close();
+    if (pGrabber) {
+        pGrabber->lpVtbl->SetCallback(pGrabber, NULL, 1);
+        pGrabber->lpVtbl->Release(pGrabber);
+        pGrabber = NULL;
+    }
     if (pNullFilter) { IGraphBuilder_RemoveFilter(pGraph, pNullFilter); IBaseFilter_Release(pNullFilter); pNullFilter = NULL; }
     if (pGrabFilter) { IGraphBuilder_RemoveFilter(pGraph, pGrabFilter); IBaseFilter_Release(pGrabFilter); pGrabFilter = NULL; }
     if (pCamFilter) { IGraphBuilder_RemoveFilter(pGraph, pCamFilter); IBaseFilter_Release(pCamFilter); pCamFilter = NULL; }
@@ -689,6 +825,259 @@ static void close_camera(void)
 /* ------------------------------------------------------------------ */
 /* DirectShow controls                                                 */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Innomaker U20CAM-9281M quirk (0C45:636D)                            */
+/*                                                                     */
+/* The module is a Sonix SN9C286 bridge with an OV9281 sensor. Its     */
+/* firmware accepts the UVC gain control but never sends it to the     */
+/* sensor (which stays at a fixed 2x), and it lowers the frame rate by */
+/* lengthening each line rather than the frame, so exposure is capped  */
+/* at one stock frame (~97 ms). Both are fixed at runtime through      */
+/* Sonix's vendor extension unit, whose selector 1 reads and writes    */
+/* the bridge's XDATA address space:                                   */
+/*  - Gain: every frame the firmware programs sensor gain (0x3509)     */
+/*    from RAM 0x08F0:0x08F1 (gain x 512, big-endian), so we write     */
+/*    that. The firmware resets it to 2x on each exposure change, so   */
+/*    u20_maintain() re-applies it.                                    */
+/*  - Exposure: the firmware's exposure in sensor lines is at RAM      */
+/*    0x0C41:0x0C42; u20_maintain() raises the sensor's frame length   */
+/*    (VTS, 0x380E/0x380F) to fit it, through the bridge's I2C         */
+/*    controller (0x8600). At the pinned 10 fps a line takes ~110 us,  */
+/*    not the 54.6 us the firmware assumes, so real exposure is ~2x    */
+/*    the UVC value; the exposure control reports display_scale 2.     */
+/* Everything is volatile: unplugging the camera restores stock.       */
+/* NEVER write 0x8E00-0x8EFF (the SPI flash controller) or use the     */
+/* flash selector (3); u20_write() only writes the addresses in        */
+/* u20_write_allowed(). Background: docs/hardware.md.                  */
+/* ------------------------------------------------------------------ */
+
+static const GUID U20_XU_GUID =
+    {0x28F03370, 0x6311, 0x4A2E, {0xBA, 0x2C, 0x68, 0x90, 0xEB, 0x33, 0x40, 0x16}};
+static const GUID U20_IID_IKsTopologyInfo =
+    {0x720D4AC0, 0x7533, 0x11D0, {0xA5, 0xD6, 0x28, 0xDB, 0x04, 0xC1, 0x00, 0x00}};
+static const GUID U20_IID_IKsControl =
+    {0x28F54685, 0x06FD, 0x11D2, {0xB2, 0x7A, 0x00, 0xA0, 0xC9, 0x22, 0x31, 0x96}};
+static const GUID U20_KSNODETYPE_DEV_SPECIFIC =
+    {0x941C7AC0, 0xC559, 0x11D0, {0x8A, 0x2B, 0x00, 0xA0, 0xC9, 0x25, 0x5A, 0xC1}};
+
+/* Minimal KS declarations (ks.h / ksproxy.h are awkward to use from C) */
+typedef struct { GUID Set; ULONG Id; ULONG Flags; } U20_KSPROPERTY;
+typedef struct { U20_KSPROPERTY Property; ULONG NodeId; ULONG Reserved; } U20_KSP_NODE;
+#define U20_KSPROPERTY_TYPE_GET      0x00000001
+#define U20_KSPROPERTY_TYPE_SET      0x00000002
+#define U20_KSPROPERTY_TYPE_TOPOLOGY 0x10000000
+
+typedef struct U20KsControl U20KsControl;
+typedef struct {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(U20KsControl *, REFIID, void **);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(U20KsControl *);
+    ULONG   (STDMETHODCALLTYPE *Release)(U20KsControl *);
+    HRESULT (STDMETHODCALLTYPE *KsProperty)(U20KsControl *, U20_KSPROPERTY *, ULONG,
+                                            void *, ULONG, ULONG *);
+} U20KsControlVtbl;
+struct U20KsControl { const U20KsControlVtbl *lpVtbl; };
+
+typedef struct U20KsTopology U20KsTopology;
+typedef struct {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(U20KsTopology *, REFIID, void **);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(U20KsTopology *);
+    ULONG   (STDMETHODCALLTYPE *Release)(U20KsTopology *);
+    HRESULT (STDMETHODCALLTYPE *get_NumCategories)(U20KsTopology *, DWORD *);
+    HRESULT (STDMETHODCALLTYPE *get_Category)(U20KsTopology *, DWORD, GUID *);
+    HRESULT (STDMETHODCALLTYPE *get_NumConnections)(U20KsTopology *, DWORD *);
+    HRESULT (STDMETHODCALLTYPE *get_ConnectionInfo)(U20KsTopology *, DWORD, void *);
+    HRESULT (STDMETHODCALLTYPE *get_NodeName)(U20KsTopology *, DWORD, WCHAR *, DWORD, DWORD *);
+    HRESULT (STDMETHODCALLTYPE *get_NumNodes)(U20KsTopology *, DWORD *);
+    HRESULT (STDMETHODCALLTYPE *get_NodeType)(U20KsTopology *, DWORD, GUID *);
+} U20KsTopologyVtbl;
+struct U20KsTopology { const U20KsTopologyVtbl *lpVtbl; };
+
+#define U20_GAIN_MIN    10      /* gain control unit: tenths of x (1.0x)  */
+#define U20_GAIN_MAX    155     /* 15.5x (sensor register 0x3509 = 0xF8)  */
+#define U20_GAIN_STOCK  20      /* firmware default, 2.0x                 */
+#define U20_VTS_STOCK   910     /* frame length of the 1280x800 mode      */
+#define U20_VTS_MARGIN  32      /* exposure must stay below VTS - ~25     */
+#define U20_VTS_MAX     9200    /* ~1.0 s frames: keeps gaps under the    */
+                                /* engine's 2 s frame-stall watchdog      */
+#define U20_TICK_MS     500
+#define U20_VTS_REFRESH 20      /* re-send VTS every 20 ticks (10 s): it   */
+                                /* can't be read back, and a sensor re-init */
+                                /* would silently restore the stock 910     */
+
+static U20KsControl *u20_ks = NULL;
+static ULONG         u20_node = 0;
+static long          u20_gain = U20_GAIN_STOCK;
+static unsigned      u20_vts = 0;          /* last frame length written; 0 = none */
+static int           u20_vts_repeat = 0;   /* write once more: no read-back */
+static int           u20_vts_ticks = 0;    /* ticks since VTS was last written */
+static DWORD         u20_last_tick = 0;
+
+/* One 4-byte transfer on extension-unit selector 1. */
+static int u20_xu(int set, BYTE d[4])
+{
+    U20_KSP_NODE p;
+    ULONG got = 0;
+    memset(&p, 0, sizeof(p));
+    p.Property.Set = U20_XU_GUID;
+    p.Property.Id = 1;
+    p.Property.Flags = (set ? U20_KSPROPERTY_TYPE_SET : U20_KSPROPERTY_TYPE_GET)
+                     | U20_KSPROPERTY_TYPE_TOPOLOGY;
+    p.NodeId = u20_node;
+    return SUCCEEDED(u20_ks->lpVtbl->KsProperty(u20_ks, &p.Property, sizeof(p),
+                                                d, 4, &got)) ? 0 : -1;
+}
+
+/* XDATA read: SET [lo, hi, 0, 0xFF] latches the address, GET returns
+ * [lo, hi, value, 0]. Returns 0..255, or -1 on error. */
+static int u20_read(unsigned addr)
+{
+    BYTE d[4] = { (BYTE)(addr & 0xFF), (BYTE)(addr >> 8), 0x00, 0xFF };
+    if (u20_xu(1, d) < 0) return -1;
+    memset(d, 0, sizeof(d));
+    if (u20_xu(0, d) < 0) return -1;
+    if (d[0] != (BYTE)(addr & 0xFF) || d[1] != (BYTE)(addr >> 8)) return -1;
+    return d[2];
+}
+
+static int u20_write_allowed(unsigned addr)
+{
+    return addr == 0x08F0 || addr == 0x08F1             /* gain (firmware RAM) */
+        || (addr >= 0x8602 && addr <= 0x8604)           /* I2C data            */
+        || addr == 0x860A;                              /* I2C command         */
+}
+
+/* XDATA write: SET [lo, hi, value, 0x00]. */
+static int u20_write(unsigned addr, int val)
+{
+    BYTE d[4];
+    if (!u20_write_allowed(addr)) return -1;
+    d[0] = (BYTE)(addr & 0xFF);
+    d[1] = (BYTE)(addr >> 8);
+    d[2] = (BYTE)val;
+    d[3] = 0x00;
+    return u20_xu(1, d);
+}
+
+/* Write one OV9281 register through the bridge's I2C controller
+ * (channel 0, slave 0x60 set by the firmware): 0x8602/03 = register,
+ * 0x8604 = value, 0x860A = (3-1)<<5 | STOP 0x10 | START 0x01. The
+ * firmware shares the controller, so check afterwards that the data
+ * registers still hold our bytes (not its traffic) and retry if not. */
+static int u20_sensor_write(unsigned reg, int val)
+{
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (u20_write(0x8602, (int)(reg >> 8)) < 0 ||
+            u20_write(0x8603, (int)(reg & 0xFF)) < 0 ||
+            u20_write(0x8604, val & 0xFF) < 0 ||
+            u20_write(0x860A, 0x51) < 0)
+            return -1;
+        int done = 0;
+        for (int t = 0; t < 20 && !done; t++) {
+            int cmd = u20_read(0x860A), st = u20_read(0x8600);
+            done = cmd >= 0 && !(cmd & 0x01) && st >= 0 && (st & 0x40) && !(st & 0x80);
+        }
+        if (done &&
+            u20_read(0x8602) == (int)(reg >> 8) &&
+            u20_read(0x8603) == (int)(reg & 0xFF) &&
+            u20_read(0x8604) == (val & 0xFF))
+            return 0;
+    }
+    return -1;
+}
+
+static unsigned u20_gain_word(long x10)
+{
+    return (unsigned)((x10 * 512 + 5) / 10);    /* 10 -> 0x0200 (1x) */
+}
+
+static int u20_apply_gain(void)
+{
+    unsigned w = u20_gain_word(u20_gain);
+    if (u20_write(0x08F0, (int)(w >> 8)) < 0 || u20_write(0x08F1, (int)(w & 0xFF)) < 0)
+        return -1;
+    return 0;
+}
+
+/* Called from the stream loop; does its work every U20_TICK_MS. */
+static void u20_maintain(void)
+{
+    DWORD now = GetTickCount();
+    if (!quirk_u20 || now - u20_last_tick < U20_TICK_MS)
+        return;
+    u20_last_tick = now;
+
+    /* Gain: the firmware resets it on every exposure change */
+    int hi = u20_read(0x08F0), lo = u20_read(0x08F1);
+    if (hi >= 0 && lo >= 0 && (unsigned)((hi << 8) | lo) != u20_gain_word(u20_gain))
+        u20_apply_gain();
+
+    /* Frame length: fit the firmware's exposure (in lines) */
+    hi = u20_read(0x0C41);
+    lo = u20_read(0x0C42);
+    if (hi < 0 || lo < 0)
+        return;
+    unsigned lines = (unsigned)((hi << 8) | lo);
+    unsigned vts = lines + U20_VTS_MARGIN;
+    if (vts < U20_VTS_STOCK) vts = U20_VTS_STOCK;
+    if (vts > U20_VTS_MAX) vts = U20_VTS_MAX;
+    u20_vts_ticks++;
+    if (vts == u20_vts && !u20_vts_repeat && u20_vts_ticks < U20_VTS_REFRESH)
+        return;
+    if (u20_sensor_write(0x380E, (int)(vts >> 8)) == 0 &&
+        u20_sensor_write(0x380F, (int)(vts & 0xFF)) == 0) {
+        if (vts != u20_vts)
+            fprintf(stderr, "U20CAM: frame length %u lines (exposure %u lines)\n",
+                    vts, lines);
+        u20_vts_repeat = (vts != u20_vts);
+        u20_vts = vts;
+        u20_vts_ticks = 0;
+    }
+}
+
+static void u20_close(void)
+{
+    if (u20_ks) {
+        u20_ks->lpVtbl->Release(u20_ks);
+        u20_ks = NULL;
+    }
+}
+
+/* After open_camera(): reach the extension unit, or fall back to stock. */
+static void u20_init(void)
+{
+    U20KsTopology *topo = NULL;
+    DWORD n = 0;
+    int found = 0;
+
+    if (!quirk_u20)
+        return;
+    if (SUCCEEDED(IBaseFilter_QueryInterface(pCamFilter, &U20_IID_IKsTopologyInfo,
+                                             (void **)&topo))) {
+        topo->lpVtbl->get_NumNodes(topo, &n);
+        for (DWORD i = 0; i < n && !found; i++) {
+            GUID t;
+            if (SUCCEEDED(topo->lpVtbl->get_NodeType(topo, i, &t)) &&
+                (IsEqualGUID(&t, &U20_KSNODETYPE_DEV_SPECIFIC) ||
+                 IsEqualGUID(&t, &U20_XU_GUID))) {
+                u20_node = i;
+                found = 1;
+            }
+        }
+        topo->lpVtbl->Release(topo);
+    }
+    if (!found || FAILED(IBaseFilter_QueryInterface(pCamFilter, &U20_IID_IKsControl,
+                                                    (void **)&u20_ks))
+        || u20_read(0x08F0) < 0) {
+        fprintf(stderr, "U20CAM: extension unit not reachable, using stock controls\n");
+        if (u20_ks) { u20_ks->lpVtbl->Release(u20_ks); u20_ks = NULL; }
+        quirk_u20 = 0;
+        return;
+    }
+    fprintf(stderr, "U20CAM quirk active: gain %ld..%ld (x0.1), frame length follows "
+            "exposure (max %u lines)\n", (long)U20_GAIN_MIN, (long)U20_GAIN_MAX,
+            U20_VTS_MAX);
+}
 
 static void query_exposure(ctrl_range_t *out)
 {
@@ -709,6 +1098,15 @@ static void query_exposure(ctrl_range_t *out)
 static void query_gain(ctrl_range_t *out)
 {
     memset(out, 0, sizeof(*out));
+    if (quirk_u20) {
+        out->valid = 1;
+        out->min = U20_GAIN_MIN;
+        out->max = U20_GAIN_MAX;
+        out->step = 1;
+        out->defval = U20_GAIN_STOCK;
+        out->cur = u20_gain;
+        return;
+    }
     if (!pProcAmp) return;
 
     HRESULT hr = IAMVideoProcAmp_GetRange(pProcAmp,
@@ -743,6 +1141,12 @@ static int set_exposure(long value)
 
 static int set_gain(long value)
 {
+    if (quirk_u20) {
+        if (value < U20_GAIN_MIN) value = U20_GAIN_MIN;
+        if (value > U20_GAIN_MAX) value = U20_GAIN_MAX;
+        u20_gain = value;
+        return u20_apply_gain();
+    }
     if (!pProcAmp) return -1;
     return SUCCEEDED(IAMVideoProcAmp_Set(pProcAmp, VideoProcAmp_Gain,
                                          value, VideoProcAmp_Flags_Manual)) ? 0 : -1;
@@ -785,8 +1189,8 @@ static int yuyv_to_jpeg(const void *yuyv_data, size_t yuyv_len,
     jpeg_buf_size = 0;
     jpeg_mem_dest(&cinfo, &jpeg_buf, &jpeg_buf_size);
 
-    cinfo.image_width = CAPTURE_W;
-    cinfo.image_height = CAPTURE_H;
+    cinfo.image_width = capture_w;
+    cinfo.image_height = capture_h;
     cinfo.input_components = 3;
     cinfo.in_color_space = JCS_YCbCr;
 
@@ -794,7 +1198,7 @@ static int yuyv_to_jpeg(const void *yuyv_data, size_t yuyv_len,
     jpeg_set_quality(&cinfo, 85, TRUE);
     jpeg_start_compress(&cinfo, TRUE);
 
-    unsigned char *row = (unsigned char *)malloc(CAPTURE_W * 3);
+    unsigned char *row = (unsigned char *)malloc((size_t)capture_w * 3);
     if (!row) {
         jpeg_destroy_compress(&cinfo);
         return -1;
@@ -802,8 +1206,8 @@ static int yuyv_to_jpeg(const void *yuyv_data, size_t yuyv_len,
 
     const unsigned char *src = (const unsigned char *)yuyv_data;
     while (cinfo.next_scanline < cinfo.image_height) {
-        const unsigned char *line = src + cinfo.next_scanline * CAPTURE_W * 2;
-        for (int x = 0; x < CAPTURE_W; x += 2) {
+        const unsigned char *line = src + cinfo.next_scanline * capture_w * 2;
+        for (int x = 0; x < capture_w; x += 2) {
             int idx = x * 2;
             unsigned char y0 = line[idx + 0];
             unsigned char cb = line[idx + 1];
@@ -834,69 +1238,46 @@ static int yuyv_to_jpeg(const void *yuyv_data, size_t yuyv_len,
 /* Frame capture                                                       */
 /* ------------------------------------------------------------------ */
 
-/* Duplicate frame detection state.
- * ISampleGrabber::GetCurrentBuffer is a polling API — it returns the
- * same buffer until DirectShow delivers a new frame.  Without this
- * check the server would flood the TCP connection with duplicate data,
- * causing high CPU usage and starving the Python UI of update time.
- * We compare frame size + a fast checksum of the first 64 bytes.
- */
-static long  prev_frame_size = 0;
-static DWORD prev_frame_hash = 0;
+/* frame_seq of the last frame handed to the TCP loop */
+static LONG last_sent_seq = 0;
 
-static DWORD quick_hash(const unsigned char *data, long len)
-{
-    DWORD h = 0x811c9dc5u;  /* FNV-1a offset basis */
-    long n = len < 64 ? len : 64;
-    for (long i = 0; i < n; i++) {
-        h ^= data[i];
-        h *= 0x01000193u;   /* FNV-1a prime */
-    }
-    return h;
-}
-
-/* Get the current frame from the sample grabber.
- * For MJPEG: raw JPEG data from the grabber buffer.
+/* Wait up to wait_ms for a frame newer than the last one returned.
+ * For MJPEG: the raw JPEG data delivered by BufferCB.
  * For YUYV:  convert to JPEG (requires HAVE_LIBJPEG).
- * Returns 0 on success, -1 on failure (includes duplicate detection).
+ * Returns 0 on success, -1 if no new frame arrived (or on failure).
  * Caller must free(*out_data) when done.
  */
-static int capture_frame(unsigned char **out_data, long *out_len)
+static int capture_frame(unsigned char **out_data, long *out_len, DWORD wait_ms)
 {
-    long buf_size = 0;
-    HRESULT hr;
-
-    /* First call to get buffer size */
-    hr = pGrabber->lpVtbl->GetCurrentBuffer(pGrabber, &buf_size, NULL);
-    /* Defense in depth: if the graph has stopped under us in steady state,
-     * EC_DEVICE_LOST may not have fired (some drivers are lax). Treat a
-     * stopped-graph error as a fatal disconnect. */
-    if (hr == VFW_E_NOT_RUNNING) {
-        fprintf(stderr,
-                "ERROR: Capture graph stopped (VFW_E_NOT_RUNNING), exiting\n");
-        fflush(stderr);
-        exit(1);
-    }
-    if (FAILED(hr) || buf_size <= 0)
-        return -1;
-
-    unsigned char *buf = (unsigned char *)malloc(buf_size);
-    if (!buf) return -1;
-
-    hr = pGrabber->lpVtbl->GetCurrentBuffer(pGrabber, &buf_size, (long *)buf);
-    if (FAILED(hr)) {
-        free(buf);
+    if (WaitForSingleObject(frame_event, wait_ms) != WAIT_OBJECT_0) {
+        /* Defense in depth: if the grabber has stopped under us in steady
+         * state, EC_DEVICE_LOST may not have fired (some drivers are lax).
+         * Treat a stopped grabber as a fatal disconnect. */
+        FILTER_STATE st;
+        if (pGrabFilter &&
+            IBaseFilter_GetState(pGrabFilter, 0, &st) == S_OK &&
+            st == State_Stopped) {
+            fprintf(stderr, "ERROR: Capture graph stopped, exiting\n");
+            fflush(stderr);
+            exit(1);
+        }
         return -1;
     }
 
-    /* Duplicate frame detection — skip if same as previous */
-    DWORD h = quick_hash(buf, buf_size);
-    if (buf_size == prev_frame_size && h == prev_frame_hash) {
-        free(buf);
-        return -1;  /* same frame, caller will sleep */
+    EnterCriticalSection(&frame_lock);
+    if (frame_seq == last_sent_seq || latest_len <= 0) {
+        LeaveCriticalSection(&frame_lock);
+        return -1;
     }
-    prev_frame_size = buf_size;
-    prev_frame_hash = h;
+    long buf_size = latest_len;
+    unsigned char *buf = (unsigned char *)malloc((size_t)buf_size);
+    if (!buf) {
+        LeaveCriticalSection(&frame_lock);
+        return -1;
+    }
+    memcpy(buf, latest_frame, (size_t)buf_size);
+    last_sent_seq = frame_seq;
+    LeaveCriticalSection(&frame_lock);
 
     if (use_mjpeg) {
         *out_data = buf;
@@ -1051,7 +1432,7 @@ static void build_hello_json(char *buf, size_t buflen)
         "\"default_width\":%d,"
         "\"default_height\":%d,"
         "\"default_fps\":30}",
-        escaped_model, CAPTURE_W, CAPTURE_H);
+        escaped_model, capture_w, capture_h);
 }
 
 static void build_control_info_json(char *buf, size_t buflen)
@@ -1065,7 +1446,9 @@ static void build_control_info_json(char *buf, size_t buflen)
                                            &val, &flags)))
             exp_cur = val;
     }
-    if (gain_range.valid && pProcAmp) {
+    if (quirk_u20) {
+        gain_cur = u20_gain;
+    } else if (gain_range.valid && pProcAmp) {
         long val, flags;
         if (SUCCEEDED(IAMVideoProcAmp_Get(pProcAmp, VideoProcAmp_Gain,
                                           &val, &flags)))
@@ -1080,15 +1463,17 @@ static void build_control_info_json(char *buf, size_t buflen)
         /* DirectShow CameraControl_Exposure is in log2(seconds) — unlike the
          * Linux/macOS UVC servers, which use 100us units. The "unit" tag tells
          * the UI which conversion to apply (web/.../CameraControls.tsx): for
-         * "log2s" it shows 2^value * 1000 ms (e.g. -5 -> 31.25 ms). */
+         * "log2s" it shows 2^value * 1000 ms (e.g. -5 -> 31.25 ms).
+         * display_scale: the U20CAM's real exposure is ~2x the UVC value. */
         pos += snprintf(controls + pos, sizeof(controls) - (size_t)pos,
             "{\"id\":\"exposure\","
             "\"label\":\"Exposure\","
             "\"type\":\"int\","
             "\"min\":%ld,\"max\":%ld,\"step\":%ld,\"cur\":%ld,"
-            "\"unit\":\"log2s\"}",
+            "\"unit\":\"log2s\"%s}",
             exposure_range.min, exposure_range.max,
-            exposure_range.step, exp_cur);
+            exposure_range.step, exp_cur,
+            quirk_u20 ? ",\"display_scale\":2" : "");
         first = 0;
     }
     if (gain_range.valid) {
@@ -1099,9 +1484,10 @@ static void build_control_info_json(char *buf, size_t buflen)
             "\"label\":\"Gain\","
             "\"type\":\"int\","
             "\"min\":%ld,\"max\":%ld,\"step\":%ld,\"cur\":%ld,"
-            "\"unit\":\"raw\"}",
+            "\"unit\":\"%s\"}",
             gain_range.min, gain_range.max,
-            gain_range.step, gain_cur);
+            gain_range.step, gain_cur,
+            quirk_u20 ? "x10" : "raw");   /* x10: tenths of x (real gain) */
     }
 
     snprintf(buf, buflen, "{\"controls\":[%s]}", controls);
@@ -1155,7 +1541,9 @@ static void apply_set_control(const char *id, long value)
     }
 }
 
-static void poll_commands(SOCKET client_fd)
+/* Handle at most one pending command without blocking.
+ * Returns 0 normally, -1 if the client has gone (or sent garbage). */
+static int poll_commands(SOCKET client_fd)
 {
     fd_set readfds;
     struct timeval tv;
@@ -1166,14 +1554,14 @@ static void poll_commands(SOCKET client_fd)
 
     int ret = select(0, &readfds, NULL, NULL, &tv);
     if (ret <= 0 || !FD_ISSET(client_fd, &readfds))
-        return;
+        return 0;
 
     uint32_t msg_type;
     unsigned char *payload = NULL;
     uint32_t length;
 
     if (read_message(client_fd, &msg_type, &payload, &length) < 0)
-        return;
+        return -1;
 
     if (msg_type == MSG_SET_CONTROL && payload) {
         char *json = (char *)malloc(length + 1);
@@ -1200,6 +1588,7 @@ static void poll_commands(SOCKET client_fd)
     }
 
     free(payload);
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1249,23 +1638,27 @@ static void handle_client(SOCKET client_fd)
         unsigned char *frame_data = NULL;
         long frame_len = 0;
 
-        if (capture_frame(&frame_data, &frame_len) < 0) {
-            /* No frame ready yet — small sleep to avoid busy-waiting */
-            Sleep(5);
-            continue;
+        /* Waits up to 50 ms for the next frame, so this loop never spins */
+        if (capture_frame(&frame_data, &frame_len, 50) == 0) {
+            if (send_message(client_fd, MSG_FRAME, frame_data,
+                             (uint32_t)frame_len) < 0) {
+                free(frame_data);
+                fprintf(stderr, "Client disconnected (send failed)\n");
+                return;
+            }
+            free(frame_data);
         }
 
-        if (send_message(client_fd, MSG_FRAME, frame_data,
-                         (uint32_t)frame_len) < 0) {
-            free(frame_data);
-            fprintf(stderr, "Client disconnected (send failed)\n");
+        /* Poll for commands on every pass, not only after a frame is sent,
+         * so the client can still change settings while the camera is
+         * delivering no frames. */
+        if (poll_commands(client_fd) < 0) {
+            fprintf(stderr, "Client disconnected\n");
             return;
         }
 
-        free(frame_data);
-
-        /* Poll for incoming commands between frames */
-        poll_commands(client_fd);
+        /* U20CAM: re-apply gain, fit the frame length to the exposure */
+        u20_maintain();
     }
 }
 
@@ -1340,6 +1733,9 @@ int main(void)
 
     /* Disable auto-exposure for manual control */
     disable_auto_exposure();
+
+    /* Innomaker U20CAM-9281M: real gain and longer exposures */
+    u20_init();
 
     /* Create TCP server */
     SOCKET server_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);

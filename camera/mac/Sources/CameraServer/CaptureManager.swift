@@ -36,6 +36,18 @@ class CaptureManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var activeDevice: AVCaptureDevice?
     var onFrame: ((Data) -> Void)?
 
+    /// Capture sizes, in order of preference.  The OV9281 sensor is 1280x800;
+    /// 1280x720 is a centre crop of it (same pixel scale, so the solver's FOV
+    /// estimate holds for both), kept for modules without the full frame.
+    private static let preferredSizes: [(width: Int32, height: Int32)] = [
+        (1280, 800),
+        (1280, 720),
+    ]
+
+    /// Size of the format configureFormat() selected (reported in HELLO).
+    private(set) var captureWidth: Int32 = 1280
+    private(set) var captureHeight: Int32 = 800
+
     /// Thread-safe access to the latest JPEG frame.
     var latestJPEG: Data? {
         jpegLock.lock()
@@ -185,9 +197,6 @@ class CaptureManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 
     private func configureFormat(device: AVCaptureDevice) {
-        let targetWidth: Int32 = 1280
-        let targetHeight: Int32 = 720
-
         // Log all available formats for diagnostics
         print("Available formats:")
         for format in device.formats {
@@ -208,40 +217,38 @@ class CaptureManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             kCMVideoCodecType_JPEG_OpenDML,
         ]
 
-        var bestFormat: AVCaptureDevice.Format?
-        for format in device.formats {
-            let desc = format.formatDescription
-            let dims = CMVideoFormatDescriptionGetDimensions(desc)
-            let subType = CMFormatDescriptionGetMediaSubType(desc)
+        func hasSize(_ format: AVCaptureDevice.Format, _ size: (width: Int32, height: Int32)) -> Bool {
+            let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            return dims.width == size.width && dims.height == size.height
+        }
+        func isJPEG(_ format: AVCaptureDevice.Format) -> Bool {
+            jpegTypes.contains(CMFormatDescriptionGetMediaSubType(format.formatDescription))
+        }
 
-            if jpegTypes.contains(subType) &&
-               dims.width == targetWidth && dims.height == targetHeight {
-                bestFormat = format
-                break
-            }
+        // MJPEG at each preferred size, in order
+        var bestFormat: AVCaptureDevice.Format?
+        for size in CaptureManager.preferredSizes where bestFormat == nil {
+            bestFormat = device.formats.first { isJPEG($0) && hasSize($0, size) }
         }
 
         // Fallback: any JPEG format at any resolution
         if bestFormat == nil {
-            bestFormat = device.formats.first { format in
-                let subType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
-                return jpegTypes.contains(subType)
-            }
+            bestFormat = device.formats.first { isJPEG($0) }
             if bestFormat != nil {
                 let dims = CMVideoFormatDescriptionGetDimensions(bestFormat!.formatDescription)
-                print("WARNING: MJPEG 1280x720 not available, using MJPEG \(dims.width)x\(dims.height)")
+                print("WARNING: MJPEG 1280x800 / 1280x720 not available, using MJPEG \(dims.width)x\(dims.height)")
             }
         }
 
-        // Final fallback: pick any format at target resolution (will use CIContext JPEG encoding)
+        // Final fallback: any format at a preferred size (will use CIContext JPEG encoding)
         if bestFormat == nil {
-            bestFormat = device.formats.first { format in
-                let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                return dims.width == targetWidth && dims.height == targetHeight
+            for size in CaptureManager.preferredSizes where bestFormat == nil {
+                bestFormat = device.formats.first { hasSize($0, size) }
             }
             if bestFormat != nil {
+                let dims = CMVideoFormatDescriptionGetDimensions(bestFormat!.formatDescription)
                 let subType = CMFormatDescriptionGetMediaSubType(bestFormat!.formatDescription)
-                print("No MJPEG available, using \(fourCharCode(subType)) \(targetWidth)x\(targetHeight) (CIContext JPEG encoding)")
+                print("No MJPEG available, using \(fourCharCode(subType)) \(dims.width)x\(dims.height) (CIContext JPEG encoding)")
             }
         }
 
@@ -249,6 +256,10 @@ class CaptureManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             print("WARNING: No suitable format found, using AVFoundation default")
             return
         }
+
+        let chosen = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+        captureWidth = chosen.width
+        captureHeight = chosen.height
 
         do {
             try device.lockForConfiguration()

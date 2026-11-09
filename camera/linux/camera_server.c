@@ -33,6 +33,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/videodev2.h>
+#include <linux/uvcvideo.h>
+#include <linux/usb/video.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdint.h>
@@ -43,6 +45,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <time.h>
 #include <unistd.h>
 #include <jpeglib.h>
 
@@ -63,10 +66,21 @@
 /* Configuration                                                       */
 /* ------------------------------------------------------------------ */
 
-#define CAPTURE_W    1280
-#define CAPTURE_H    720
 #define NUM_BUFFERS  4
 #define SERVER_PORT  8764
+
+/* Capture sizes, in order of preference.  The OV9281 sensor is 1280x800;
+ * 1280x720 is a centre crop of it (same pixel scale, so the solver's FOV
+ * estimate holds for both), kept for modules that don't offer the full
+ * frame.  open_camera() sets capture_w / capture_h to the size it got. */
+static const struct { unsigned int w, h; } CAPTURE_SIZES[] = {
+    {1280, 800},
+    {1280, 720},
+};
+#define NUM_CAPTURE_SIZES (sizeof(CAPTURE_SIZES) / sizeof(CAPTURE_SIZES[0]))
+
+static unsigned int capture_w = 1280;
+static unsigned int capture_h = 800;
 
 /* ------------------------------------------------------------------ */
 /* Camera allowlist                                                    */
@@ -171,6 +185,12 @@ static unsigned int n_buffers = 0;
 
 /* Camera model name from sysfs */
 static char camera_model[128] = "Unknown";
+
+/* Innomaker U20CAM-9281M: needs the runtime gain / frame-length quirk
+ * (see "Innomaker U20CAM-9281M quirk" below). Set by find_device(). */
+#define U20_VID 0x0C45
+#define U20_PID 0x636D
+static int quirk_u20 = 0;
 
 /* Control ranges */
 typedef struct {
@@ -300,6 +320,7 @@ static int find_device(char *dev_path, size_t dev_path_len)
             close(test_fd);
 
             snprintf(dev_path, dev_path_len, "%s", candidate);
+            quirk_u20 = (vid == U20_VID && pid == U20_PID);
 
             /* Try to read camera model name */
             snprintf(path, sizeof(path),
@@ -415,6 +436,29 @@ static void set_lowest_fps(uint32_t pixfmt, uint32_t width, uint32_t height)
 /* V4L2 capture setup                                                  */
 /* ------------------------------------------------------------------ */
 
+/* VIDIOC_S_FMT with the given pixel format and size.  The driver may
+ * substitute the nearest size it supports; with exact set, that counts as
+ * failure so the caller can try its next preferred size.  Returns 1 on
+ * success with the negotiated format in *fmt, 0 otherwise. */
+static int set_format(uint32_t pixfmt, unsigned int w, unsigned int h,
+                      int exact, struct v4l2_format *fmt)
+{
+    memset(fmt, 0, sizeof(*fmt));
+    fmt->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt->fmt.pix.width = w;
+    fmt->fmt.pix.height = h;
+    fmt->fmt.pix.pixelformat = pixfmt;
+    fmt->fmt.pix.field = V4L2_FIELD_NONE;
+
+    if (xioctl(cam_fd, VIDIOC_S_FMT, fmt) < 0)
+        return 0;
+    if (fmt->fmt.pix.pixelformat != pixfmt)
+        return 0;
+    if (exact && (fmt->fmt.pix.width != w || fmt->fmt.pix.height != h))
+        return 0;
+    return 1;
+}
+
 static int open_camera(const char *dev_path)
 {
     cam_fd = open(dev_path, O_RDWR);
@@ -423,39 +467,43 @@ static int open_camera(const char *dev_path)
         return -1;
     }
 
-    /* Try MJPEG first */
+    /* MJPEG at each preferred size, then YUYV at each, then whatever size
+     * the driver picks nearest to the last preferred size. */
     struct v4l2_format fmt;
-    memset(&fmt, 0, sizeof(fmt));
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.width = CAPTURE_W;
-    fmt.fmt.pix.height = CAPTURE_H;
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
-    fmt.fmt.pix.field = V4L2_FIELD_NONE;
-
-    if (xioctl(cam_fd, VIDIOC_S_FMT, &fmt) == 0 &&
-        fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_MJPEG) {
-        use_mjpeg = 1;
-        fprintf(stderr, "Using MJPEG capture %ux%u\n",
-                fmt.fmt.pix.width, fmt.fmt.pix.height);
-    } else {
-        /* Fallback to YUYV */
-        memset(&fmt, 0, sizeof(fmt));
-        fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        fmt.fmt.pix.width = CAPTURE_W;
-        fmt.fmt.pix.height = CAPTURE_H;
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-        fmt.fmt.pix.field = V4L2_FIELD_NONE;
-
-        if (xioctl(cam_fd, VIDIOC_S_FMT, &fmt) < 0) {
-            perror("VIDIOC_S_FMT (YUYV)");
-            close(cam_fd);
-            cam_fd = -1;
-            return -1;
-        }
+    int found = 0;
+    use_mjpeg = 1;
+    for (size_t i = 0; !found && i < NUM_CAPTURE_SIZES; i++)
+        found = set_format(V4L2_PIX_FMT_MJPEG, CAPTURE_SIZES[i].w,
+                           CAPTURE_SIZES[i].h, 1, &fmt);
+    if (!found) {
         use_mjpeg = 0;
-        fprintf(stderr, "MJPEG not available, using YUYV capture %ux%u\n",
-                fmt.fmt.pix.width, fmt.fmt.pix.height);
+        for (size_t i = 0; !found && i < NUM_CAPTURE_SIZES; i++)
+            found = set_format(V4L2_PIX_FMT_YUYV, CAPTURE_SIZES[i].w,
+                               CAPTURE_SIZES[i].h, 1, &fmt);
     }
+    if (!found) {
+        const unsigned int w = CAPTURE_SIZES[NUM_CAPTURE_SIZES - 1].w;
+        const unsigned int h = CAPTURE_SIZES[NUM_CAPTURE_SIZES - 1].h;
+        use_mjpeg = 1;
+        found = set_format(V4L2_PIX_FMT_MJPEG, w, h, 0, &fmt);
+        if (!found) {
+            use_mjpeg = 0;
+            found = set_format(V4L2_PIX_FMT_YUYV, w, h, 0, &fmt);
+        }
+    }
+    if (!found) {
+        perror("VIDIOC_S_FMT (YUYV)");
+        close(cam_fd);
+        cam_fd = -1;
+        return -1;
+    }
+    capture_w = fmt.fmt.pix.width;
+    capture_h = fmt.fmt.pix.height;
+    if (use_mjpeg)
+        fprintf(stderr, "Using MJPEG capture %ux%u\n", capture_w, capture_h);
+    else
+        fprintf(stderr, "MJPEG not available, using YUYV capture %ux%u\n",
+                capture_w, capture_h);
 
     /* Pin the lowest fps for max exposure headroom (issue #26).  Must run
      * after S_FMT (per-format enumeration) and before exposure is queried. */
@@ -575,6 +623,178 @@ static int v4l2_set_control(int ctrl_id, int32_t value)
     return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* Innomaker U20CAM-9281M quirk (0C45:636D)                            */
+/*                                                                     */
+/* Same as the Windows server (camera/windows/camera_server.c has the  */
+/* full explanation): the Sonix SN9C286 firmware never sends the UVC   */
+/* gain to the OV9281 and caps exposure at one stock frame. Through    */
+/* the vendor extension unit (unit 3, selector 1 = XDATA read/write):  */
+/*  - gain: write RAM 0x08F0:0x08F1 = gain x 512 (big-endian); the     */
+/*    firmware resets it on each exposure change, so u20_maintain()    */
+/*    re-applies it;                                                   */
+/*  - exposure: raise the sensor frame length (VTS, 0x380E/0x380F) to  */
+/*    the firmware's exposure lines (RAM 0x0C41:0x0C42) via the        */
+/*    bridge's I2C controller (0x8600). Real exposure is ~2x the UVC   */
+/*    value, reported as display_scale 2.                              */
+/* Volatile: unplugging restores stock. NEVER write 0x8E00-0x8EFF (SPI */
+/* flash controller) or use the flash selector (3).                    */
+/* ------------------------------------------------------------------ */
+
+#define U20_XU_UNIT     3
+#define U20_XU_SEL      1
+#define U20_GAIN_MIN    10      /* gain control unit: tenths of x (1.0x)  */
+#define U20_GAIN_MAX    155     /* 15.5x                                  */
+#define U20_GAIN_STOCK  20      /* firmware default, 2.0x                 */
+#define U20_VTS_STOCK   910
+#define U20_VTS_MARGIN  32
+#define U20_VTS_MAX     9200    /* ~1.0 s frames, under the 2 s watchdog  */
+#define U20_TICK_MS     500
+#define U20_VTS_REFRESH 20      /* re-send VTS every 10 s (no read-back)  */
+
+static int      u20_gain = U20_GAIN_STOCK;
+static unsigned u20_vts = 0;           /* last frame length written; 0 = none */
+static int      u20_vts_repeat = 0;    /* write once more: no read-back */
+static int      u20_vts_ticks = 0;     /* ticks since VTS was last written */
+static long     u20_last_tick = 0;
+
+static long now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+/* One 4-byte transfer on extension-unit selector 1. */
+static int u20_xu(int set, unsigned char d[4])
+{
+    struct uvc_xu_control_query q;
+    memset(&q, 0, sizeof(q));
+    q.unit = U20_XU_UNIT;
+    q.selector = U20_XU_SEL;
+    q.query = set ? UVC_SET_CUR : UVC_GET_CUR;
+    q.size = 4;
+    q.data = d;
+    return xioctl(cam_fd, UVCIOC_CTRL_QUERY, &q) < 0 ? -1 : 0;
+}
+
+/* XDATA read: SET [lo, hi, 0, 0xFF] latches the address, GET returns
+ * [lo, hi, value, 0]. Returns 0..255, or -1 on error. */
+static int u20_read(unsigned addr)
+{
+    unsigned char d[4] = { (unsigned char)(addr & 0xFF), (unsigned char)(addr >> 8),
+                           0x00, 0xFF };
+    if (u20_xu(1, d) < 0) return -1;
+    memset(d, 0, sizeof(d));
+    if (u20_xu(0, d) < 0) return -1;
+    if (d[0] != (unsigned char)(addr & 0xFF) || d[1] != (unsigned char)(addr >> 8))
+        return -1;
+    return d[2];
+}
+
+static int u20_write_allowed(unsigned addr)
+{
+    return addr == 0x08F0 || addr == 0x08F1             /* gain (firmware RAM) */
+        || (addr >= 0x8602 && addr <= 0x8604)           /* I2C data            */
+        || addr == 0x860A;                              /* I2C command         */
+}
+
+/* XDATA write: SET [lo, hi, value, 0x00]. */
+static int u20_write(unsigned addr, int val)
+{
+    if (!u20_write_allowed(addr)) return -1;
+    unsigned char d[4] = { (unsigned char)(addr & 0xFF), (unsigned char)(addr >> 8),
+                           (unsigned char)val, 0x00 };
+    return u20_xu(1, d);
+}
+
+/* Write one OV9281 register through the bridge's I2C controller, then
+ * check its data registers still hold our bytes (the firmware shares the
+ * controller) and retry if not. */
+static int u20_sensor_write(unsigned reg, int val)
+{
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (u20_write(0x8602, (int)(reg >> 8)) < 0 ||
+            u20_write(0x8603, (int)(reg & 0xFF)) < 0 ||
+            u20_write(0x8604, val & 0xFF) < 0 ||
+            u20_write(0x860A, 0x51) < 0)       /* (3-1)<<5 | STOP | START */
+            return -1;
+        int done = 0;
+        for (int t = 0; t < 20 && !done; t++) {
+            int cmd = u20_read(0x860A), st = u20_read(0x8600);
+            done = cmd >= 0 && !(cmd & 0x01) && st >= 0 && (st & 0x40) && !(st & 0x80);
+        }
+        if (done &&
+            u20_read(0x8602) == (int)(reg >> 8) &&
+            u20_read(0x8603) == (int)(reg & 0xFF) &&
+            u20_read(0x8604) == (val & 0xFF))
+            return 0;
+    }
+    return -1;
+}
+
+static unsigned u20_gain_word(int x10)
+{
+    return (unsigned)((x10 * 512 + 5) / 10);    /* 10 -> 0x0200 (1x) */
+}
+
+static int u20_apply_gain(void)
+{
+    unsigned w = u20_gain_word(u20_gain);
+    if (u20_write(0x08F0, (int)(w >> 8)) < 0 || u20_write(0x08F1, (int)(w & 0xFF)) < 0)
+        return -1;
+    return 0;
+}
+
+/* Called from the stream loop; does its work every U20_TICK_MS. */
+static void u20_maintain(void)
+{
+    long now = now_ms();
+    if (!quirk_u20 || now - u20_last_tick < U20_TICK_MS)
+        return;
+    u20_last_tick = now;
+
+    int hi = u20_read(0x08F0), lo = u20_read(0x08F1);
+    if (hi >= 0 && lo >= 0 && (unsigned)((hi << 8) | lo) != u20_gain_word(u20_gain))
+        u20_apply_gain();
+
+    hi = u20_read(0x0C41);
+    lo = u20_read(0x0C42);
+    if (hi < 0 || lo < 0)
+        return;
+    unsigned lines = (unsigned)((hi << 8) | lo);
+    unsigned vts = lines + U20_VTS_MARGIN;
+    if (vts < U20_VTS_STOCK) vts = U20_VTS_STOCK;
+    if (vts > U20_VTS_MAX) vts = U20_VTS_MAX;
+    u20_vts_ticks++;
+    if (vts == u20_vts && !u20_vts_repeat && u20_vts_ticks < U20_VTS_REFRESH)
+        return;
+    if (u20_sensor_write(0x380E, (int)(vts >> 8)) == 0 &&
+        u20_sensor_write(0x380F, (int)(vts & 0xFF)) == 0) {
+        if (vts != u20_vts)
+            fprintf(stderr, "U20CAM: frame length %u lines (exposure %u lines)\n",
+                    vts, lines);
+        u20_vts_repeat = (vts != u20_vts);
+        u20_vts = vts;
+        u20_vts_ticks = 0;
+    }
+}
+
+/* After open_camera(): check the extension unit answers, or fall back. */
+static void u20_init(void)
+{
+    if (!quirk_u20)
+        return;
+    if (u20_read(0x08F0) < 0) {
+        fprintf(stderr, "U20CAM: extension unit not reachable (%s), using stock controls\n",
+                strerror(errno));
+        quirk_u20 = 0;
+        return;
+    }
+    fprintf(stderr, "U20CAM quirk active: gain %d..%d (x0.1), frame length follows "
+            "exposure (max %d lines)\n", U20_GAIN_MIN, U20_GAIN_MAX, U20_VTS_MAX);
+}
+
 static void query_control(uint32_t ctrl_id, ctrl_range_t *out)
 {
     memset(out, 0, sizeof(*out));
@@ -603,6 +823,14 @@ static void probe_controls(void)
 {
     query_control(V4L2_CID_EXPOSURE_ABSOLUTE, &exposure_range);
     query_control(V4L2_CID_GAIN, &gain_range);
+    if (quirk_u20) {
+        gain_range.valid = 1;
+        gain_range.min = U20_GAIN_MIN;
+        gain_range.max = U20_GAIN_MAX;
+        gain_range.step = 1;
+        gain_range.defval = U20_GAIN_STOCK;
+        gain_range.cur = u20_gain;
+    }
     fprintf(stderr, "Exposure range: valid=%d min=%d max=%d step=%d cur=%d\n",
             exposure_range.valid, exposure_range.min, exposure_range.max,
             exposure_range.step, exposure_range.cur);
@@ -633,8 +861,8 @@ static int yuyv_to_jpeg(const void *yuyv_data, size_t yuyv_len,
     jpeg_buf_size = 0;
     jpeg_mem_dest(&cinfo, &jpeg_buf, &jpeg_buf_size);
 
-    cinfo.image_width = CAPTURE_W;
-    cinfo.image_height = CAPTURE_H;
+    cinfo.image_width = capture_w;
+    cinfo.image_height = capture_h;
     cinfo.input_components = 3;
     cinfo.in_color_space = JCS_YCbCr;
 
@@ -643,7 +871,7 @@ static int yuyv_to_jpeg(const void *yuyv_data, size_t yuyv_len,
     jpeg_start_compress(&cinfo, TRUE);
 
     /* Convert YUYV → YCbCr row by row */
-    unsigned char *row = malloc(CAPTURE_W * 3);
+    unsigned char *row = malloc((size_t)capture_w * 3);
     if (!row) {
         jpeg_destroy_compress(&cinfo);
         return -1;
@@ -651,8 +879,8 @@ static int yuyv_to_jpeg(const void *yuyv_data, size_t yuyv_len,
 
     const unsigned char *src = (const unsigned char *)yuyv_data;
     while (cinfo.next_scanline < cinfo.image_height) {
-        const unsigned char *line = src + cinfo.next_scanline * CAPTURE_W * 2;
-        for (int x = 0; x < CAPTURE_W; x += 2) {
+        const unsigned char *line = src + cinfo.next_scanline * capture_w * 2;
+        for (unsigned int x = 0; x < capture_w; x += 2) {
             int idx = x * 2;
             unsigned char y0 = line[idx + 0];
             unsigned char cb = line[idx + 1];
@@ -863,10 +1091,10 @@ static void build_hello_json(char *buf, size_t buflen)
         "\"backend_version\":\"0.1.0\","
         "\"camera_model\":\"%s\","
         "\"stream_format\":\"MJPEG\","
-        "\"default_width\":%d,"
-        "\"default_height\":%d,"
+        "\"default_width\":%u,"
+        "\"default_height\":%u,"
         "\"default_fps\":30}",
-        escaped_model, CAPTURE_W, CAPTURE_H);
+        escaped_model, capture_w, capture_h);
 }
 
 static void build_control_info_json(char *buf, size_t buflen)
@@ -876,7 +1104,9 @@ static void build_control_info_json(char *buf, size_t buflen)
     int32_t gain_cur = gain_range.cur;
     if (exposure_range.valid)
         v4l2_get_control(V4L2_CID_EXPOSURE_ABSOLUTE, &exp_cur);
-    if (gain_range.valid)
+    if (quirk_u20)
+        gain_cur = u20_gain;
+    else if (gain_range.valid)
         v4l2_get_control(V4L2_CID_GAIN, &gain_cur);
 
     /* Build controls array */
@@ -890,9 +1120,10 @@ static void build_control_info_json(char *buf, size_t buflen)
             "\"label\":\"Exposure\","
             "\"type\":\"int\","
             "\"min\":%d,\"max\":%d,\"step\":%d,\"cur\":%d,"
-            "\"unit\":\"100us\"}",
+            "\"unit\":\"100us\"%s}",
             exposure_range.min, exposure_range.max,
-            exposure_range.step, exp_cur);
+            exposure_range.step, exp_cur,
+            quirk_u20 ? ",\"display_scale\":2" : "");  /* U20CAM: real ~2x */
         first = 0;
     }
     if (gain_range.valid) {
@@ -903,9 +1134,10 @@ static void build_control_info_json(char *buf, size_t buflen)
             "\"label\":\"Gain\","
             "\"type\":\"int\","
             "\"min\":%d,\"max\":%d,\"step\":%d,\"cur\":%d,"
-            "\"unit\":\"raw\"}",
+            "\"unit\":\"%s\"}",
             gain_range.min, gain_range.max,
-            gain_range.step, gain_cur);
+            gain_range.step, gain_cur,
+            quirk_u20 ? "x10" : "raw");   /* x10: tenths of x (real gain) */
     }
 
     snprintf(buf, buflen, "{\"controls\":[%s]}", controls);
@@ -957,7 +1189,14 @@ static void apply_set_control(const char *id, int32_t value)
         v4l2_set_control(V4L2_CID_EXPOSURE_ABSOLUTE, value);
         fprintf(stderr, "Set exposure = %d\n", value);
     } else if (strcmp(id, "gain") == 0) {
-        v4l2_set_control(V4L2_CID_GAIN, value);
+        if (quirk_u20) {
+            if (value < U20_GAIN_MIN) value = U20_GAIN_MIN;
+            if (value > U20_GAIN_MAX) value = U20_GAIN_MAX;
+            u20_gain = value;
+            u20_apply_gain();
+        } else {
+            v4l2_set_control(V4L2_CID_GAIN, value);
+        }
         fprintf(stderr, "Set gain = %d\n", value);
     } else {
         fprintf(stderr, "Unknown control: %s\n", id);
@@ -1064,8 +1303,13 @@ static void handle_client(int client_fd)
         }
         if (cam_poll.revents & (POLLERR | POLLHUP | POLLNVAL))
             fatal_disconnect("camera fd POLLERR/POLLHUP/POLLNVAL");
-        if (pr == 0)
+        if (pr == 0) {
+            /* No frame yet (long exposures run at ~1 fps): still serve
+             * commands and the U20CAM upkeep between frames. */
+            poll_commands(client_fd);
+            u20_maintain();
             continue;
+        }
 
         const unsigned char *frame_data;
         size_t frame_len;
@@ -1090,6 +1334,9 @@ static void handle_client(int client_fd)
 
         /* Poll for incoming commands between frames */
         poll_commands(client_fd);
+
+        /* U20CAM: re-apply gain, fit the frame length to the exposure */
+        u20_maintain();
     }
 }
 
@@ -1140,6 +1387,9 @@ int main(void)
 
     /* Disable auto-exposure for manual control */
     v4l2_set_control(V4L2_CID_EXPOSURE_AUTO, V4L2_EXPOSURE_MANUAL);
+
+    /* Innomaker U20CAM-9281M: real gain and longer exposures */
+    u20_init();
 
     /* Create TCP server */
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);

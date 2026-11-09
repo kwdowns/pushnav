@@ -114,7 +114,19 @@ class UVCController {
     var exposureTimeRange = ControlRange()
     var gainRange = ControlRange()
 
+    let vendorID: Int
+    let productID: Int
+
+    // Serializes control transfers: the TCP queue (SET_CONTROL) and the
+    // U20CAM quirk's timer queue both issue requests.
+    private let requestLock = NSLock()
+
+    // Sonix vendor extension unit (Innomaker U20CAM quirk, U20CamQuirk.swift)
+    let extensionUnitID: UInt8 = 3
+
     init?(vendorID: Int, productID: Int) {
+        self.vendorID = vendorID
+        self.productID = productID
         // Find the USB device by VID/PID
         let matchingDict = IOServiceMatching(kIOUSBDeviceClassName) as NSMutableDictionary
         matchingDict[kUSBVendorID] = vendorID
@@ -227,6 +239,8 @@ class UVCController {
         let bmRequestType = usbMakeBmRequestType(
             direction: direction, type: kUSBClass, recipient: kUSBInterface)
 
+        requestLock.lock()
+        defer { requestLock.unlock() }
         return withUnsafeMutablePointer(to: &value) { ptr in
             var req = IOUSBDevRequest(
                 bmRequestType: bmRequestType,
@@ -341,5 +355,24 @@ class UVCController {
     func getGain() -> Int {
         return getValue(request: UVC_GET_CUR, selector: PU_GAIN,
                         unitID: processingUnitID, size: 2) ?? gainRange.cur
+    }
+
+    // MARK: - Sonix extension unit (Innomaker U20CAM quirk)
+
+    /// One 4-byte SET_CUR or GET_CUR on extension-unit selector 1 (the
+    /// Sonix bridge's XDATA read/write). `bytes` must hold 4 elements; on a
+    /// GET it is replaced with the device's reply.
+    func xuTransfer(set: Bool, _ bytes: inout [UInt8]) -> Bool {
+        // sendRequest passes the Int's storage as the data buffer;
+        // little-endian, so the low 4 bytes carry the packet.
+        var value = Int(bytes[0]) | Int(bytes[1]) << 8 | Int(bytes[2]) << 16 | Int(bytes[3]) << 24
+        let ok = sendRequest(direction: set ? kUSBOut : kUSBIn,
+                             request: set ? UVC_SET_CUR : UVC_GET_CUR,
+                             selector: 1, unitID: extensionUnitID, size: 4, value: &value)
+        if ok && !set {
+            bytes = [UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF),
+                     UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF)]
+        }
+        return ok
     }
 }
