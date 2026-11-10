@@ -1203,22 +1203,28 @@ static void apply_set_control(const char *id, int32_t value)
     }
 }
 
-static void poll_commands(int client_fd)
+/* Handle one pending command, if any. Returns -1 once the client has
+ * gone (hangup, or a read that fails), so the stream loop stops instead
+ * of waking for a dead socket over and over. */
+static int poll_commands(int client_fd)
 {
     struct pollfd pfd;
     pfd.fd = client_fd;
     pfd.events = POLLIN;
+    pfd.revents = 0;
 
     int ret = poll(&pfd, 1, 0);
-    if (ret <= 0 || !(pfd.revents & POLLIN))
-        return;
+    if (ret <= 0)
+        return 0;
+    if (!(pfd.revents & POLLIN))
+        return (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) ? -1 : 0;
 
     uint32_t msg_type;
     unsigned char *payload = NULL;
     uint32_t length;
 
     if (read_message(client_fd, &msg_type, &payload, &length) < 0)
-        return;
+        return -1;
 
     if (msg_type == MSG_SET_CONTROL && payload) {
         /* Null-terminate for parsing */
@@ -1246,6 +1252,21 @@ static void poll_commands(int client_fd)
     }
 
     free(payload);
+    return 0;
+}
+
+/* Longest the stream loop sleeps in poll(): until the next U20CAM upkeep
+ * tick, or 1 s without one. Frames and commands wake it sooner. Sleeping
+ * through long exposures, rather than waking every 100 ms, lets a Pi's
+ * CPU stay idle. */
+static int stream_poll_timeout_ms(void)
+{
+    if (!quirk_u20)
+        return 1000;
+    long wait = U20_TICK_MS - (now_ms() - u20_last_tick);
+    if (wait < 0)
+        return 0;
+    return wait > U20_TICK_MS ? U20_TICK_MS : (int)wait;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1291,22 +1312,29 @@ static void handle_client(int client_fd)
 
     /* Stream loop */
     while (!stop_flag) {
-        /* Wait for camera frame readiness */
-        struct pollfd cam_poll;
-        cam_poll.fd = cam_fd;
-        cam_poll.events = POLLIN;
-        int pr = poll(&cam_poll, 1, 100);
+        /* Sleep until a frame, a command or the next U20CAM upkeep tick */
+        struct pollfd pfds[2];
+        pfds[0].fd = cam_fd;
+        pfds[0].events = POLLIN;
+        pfds[0].revents = 0;
+        pfds[1].fd = client_fd;
+        pfds[1].events = POLLIN;
+        pfds[1].revents = 0;
+        int pr = poll(pfds, 2, stream_poll_timeout_ms());
         if (pr < 0) {
             if (errno == EINTR)
                 continue;
             fatal_disconnect("camera poll()");
         }
-        if (cam_poll.revents & (POLLERR | POLLHUP | POLLNVAL))
+        if (pfds[0].revents & (POLLERR | POLLHUP | POLLNVAL))
             fatal_disconnect("camera fd POLLERR/POLLHUP/POLLNVAL");
-        if (pr == 0) {
-            /* No frame yet (long exposures run at ~1 fps): still serve
-             * commands and the U20CAM upkeep between frames. */
-            poll_commands(client_fd);
+        if (pfds[1].revents && poll_commands(client_fd) < 0) {
+            fprintf(stderr, "Client disconnected\n");
+            return;
+        }
+        if (!(pfds[0].revents & POLLIN)) {
+            /* No frame yet (long exposures run at ~1 fps): keep up the
+             * U20CAM upkeep between frames. */
             u20_maintain();
             continue;
         }
@@ -1333,7 +1361,10 @@ static void handle_client(int client_fd)
             requeue_buffer(buf_index);
 
         /* Poll for incoming commands between frames */
-        poll_commands(client_fd);
+        if (poll_commands(client_fd) < 0) {
+            fprintf(stderr, "Client disconnected\n");
+            return;
+        }
 
         /* U20CAM: re-apply gain, fit the frame length to the exposure */
         u20_maintain();

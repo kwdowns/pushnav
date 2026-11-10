@@ -72,6 +72,9 @@ connects or sends a target (the servers' `on_client_connected` callbacks
 and `GotoTarget` changes). The LEDs are only writable because the
 unit's `ExecStartPre=+`/`ExecStopPost=+` run `evf.engine.led_helper
 take`/`restore` as root; `led.enabled` in config.json turns it off.
+The same way, `evf.engine.cpufreq_helper limit`/`restore` caps the CPU
+clock (cpufreq `scaling_max_freq`, governor untouched) at
+`power.max_freq_mhz` (default 1200, `null` for none) while the service runs.
 A jumper from GPIO21 (pin 40) to GND (pin 39) turns on debug mode on the Pi
 without environment variables: another root `ExecStartPre=+` step,
 `evf.engine.debug_pin`, reads the pin and creates `/run/pushnav-headless/debug`

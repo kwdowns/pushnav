@@ -190,6 +190,19 @@ Good to know:
   `config.json` (see below), then run
   `sudo systemctl restart pushnav-headless`.
 
+## Power saving
+
+A plate solve takes a few tens of milliseconds, and the camera takes most
+of a second to deliver each frame, so the Pi spends nearly all its time
+waiting. PushNav sleeps between frames, and while it runs it caps the
+CPU clock at 1200 MHz (a Pi 4 normally runs up to 1500 or 1800 MHz). The
+CPU still drops to its lowest clock when idle. Stopping PushNav puts the
+cap back as it was.
+
+To choose a different cap, set `"power": {"max_freq_mhz": 1000}` in
+`config.json` (see below), or `null` to turn the cap off, then run
+`sudo systemctl restart pushnav-headless`.
+
 ## Debug mode
 
 Debug mode adds a Debug panel at the bottom of the PushNav page. Its

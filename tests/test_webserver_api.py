@@ -204,3 +204,15 @@ async def test_ws_connect_calls_on_client_connected(tmp_path, monkeypatch):
         assert len(calls) == 2
     finally:
         ws.stop()
+
+
+@pytest.mark.asyncio
+async def test_ws_gets_state_after_idle_and_reconnect(server_and_actions):
+    """The broadcast loop sleeps with no clients; a new client must wake it."""
+    ws, _ = server_and_actions
+    async with ClientSession() as s:
+        for _ in range(2):  # second pass: loop went idle again in between
+            async with s.ws_connect(f"http://127.0.0.1:{ws._port}/ws") as conn:
+                msg = await asyncio.wait_for(conn.receive_str(), timeout=2.0)
+                assert msg.startswith("{")
+            await asyncio.sleep(0.3)

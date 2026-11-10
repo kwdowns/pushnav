@@ -186,6 +186,10 @@ class WebServer:
         self._on_client_connected = on_client_connected
 
         self._clients: set[web.WebSocketResponse] = set()
+        # Set while WebSocket clients are connected; with none, the
+        # broadcast loop sleeps on it instead of waking at 10 Hz.
+        # Created in _serve so it belongs to the server's own event loop.
+        self._have_clients: asyncio.Event | None = None
         self._mjpeg_clients: int = 0
         self._loop: asyncio.AbstractEventLoop | None = None
         self._serve_task: asyncio.Task | None = None
@@ -259,6 +263,7 @@ class WebServer:
         else:
             logger.info("Mobile web interface at %s", url)
 
+        self._have_clients = asyncio.Event()
         app = web.Application(middlewares=[_security_headers_middleware])
         app.router.add_get("/", self._handle_index)
         app.router.add_get("/api/version", self._handle_version)
@@ -411,6 +416,7 @@ class WebServer:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._clients.add(ws)
+        self._have_clients.set()
         logger.info("Web client connected")
         if self._on_client_connected is not None:
             try:
@@ -427,6 +433,9 @@ class WebServer:
 
     async def _broadcast_loop(self) -> None:
         while True:
+            if not self._clients:
+                self._have_clients.clear()
+                await self._have_clients.wait()
             await asyncio.sleep(0.1)  # 10 Hz
             if not self._clients:
                 continue

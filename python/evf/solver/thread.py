@@ -128,6 +128,7 @@ class SolverThread:
 
     _VALID_STATES = (EngineState.CALIBRATE, EngineState.WARMING_UP, EngineState.TRACKING)
     _AUDIO_FAIL_THRESHOLD = 3  # consecutive failures before audio alert
+    _FRAME_WAIT_S = 0.25  # longest wait for a frame before re-checking stop/state
     _CALIBRATE_MIN_SEP = 0.5  # minimum angular separation (degrees) for calibration
     _CALIBRATE_STABLE_TOL = 0.05  # max frame-to-frame drift (degrees) to count as stable
     _CALIBRATE_STABLE_SECS = 1.0  # seconds of stability required before accepting
@@ -206,9 +207,12 @@ class SolverThread:
                 )
                 return
 
-            jpeg_bytes, _timestamp, frame_id = self._frame_buffer.get()
+            # Sleep until the next frame rather than polling; the timeout
+            # keeps the stop and state checks above responsive.
+            jpeg_bytes, _timestamp, frame_id = self._frame_buffer.wait_for_newer(
+                last_frame_id, self._FRAME_WAIT_S
+            )
             if jpeg_bytes is None or frame_id == last_frame_id:
-                time.sleep(0.01)
                 continue
 
             last_frame_id = frame_id

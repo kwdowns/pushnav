@@ -36,6 +36,9 @@ DEFAULT_CONFIG = {
     "audio": {"enabled": True},
     # Headless Pi status LED (see evf/engine/status_led.py).
     "led": {"enabled": True},
+    # Headless Pi CPU clock cap in MHz, null for none (see
+    # evf/engine/cpufreq_helper.py). Solves take tens of ms per exposure.
+    "power": {"max_freq_mhz": 1200},
     "lx200": {"epoch": "jnow"},
     "webserver": {"port": 8765},
     "location": {"latitude": None, "longitude": None},
