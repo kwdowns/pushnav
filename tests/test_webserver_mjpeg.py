@@ -86,3 +86,41 @@ async def test_mjpeg_client_limit(server):
             # 5th should be rejected
             async with s.get(f"http://127.0.0.1:{server._port}/frame.mjpg") as resp5:
                 assert resp5.status == 503
+
+
+@pytest.mark.asyncio
+async def test_frame_jpg_returns_the_latest_frame(server):
+    async with ClientSession() as s:
+        async with s.get(f"http://127.0.0.1:{server._port}/frame.jpg?id=1") as resp:
+            assert resp.status == 200
+            assert resp.headers["Content-Type"] == "image/jpeg"
+            assert "no-store" in resp.headers["Cache-Control"]
+            assert resp.headers["X-Frame-Id"] == "1"
+            assert await resp.read() == _TINY_JPEG
+
+
+@pytest.mark.asyncio
+async def test_frame_jpg_404_without_a_frame(server):
+    server._frame_buffer.clear()
+    async with ClientSession() as s:
+        async with s.get(f"http://127.0.0.1:{server._port}/frame.jpg") as resp:
+            assert resp.status == 404
+
+
+def test_payload_frame_id_follows_the_buffer(server):
+    assert server._build_payload()["camera"]["frame_id"] == 1
+    server._frame_buffer.set(_TINY_JPEG, time.time(), 7)
+    assert server._build_payload()["camera"]["frame_id"] == 7
+    server._frame_buffer.clear()
+    payload = server._build_payload()
+    assert payload["camera"]["frame_id"] is None
+    assert payload["camera"]["connected"] is False
+
+
+@pytest.mark.asyncio
+async def test_csp_lets_the_live_view_show_blob_frames(server):
+    async with ClientSession() as s:
+        async with s.get(f"http://127.0.0.1:{server._port}/frame.jpg") as resp:
+            csp = resp.headers["Content-Security-Policy"]
+    img_src = next(d for d in csp.split(";") if d.strip().startswith("img-src"))
+    assert "blob:" in img_src.split()

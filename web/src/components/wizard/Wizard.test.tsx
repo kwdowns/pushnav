@@ -14,7 +14,7 @@ const base: EnginePayload = {
   stellarium: { active: false, address: null }, lx200: { active: false, address: null },
   webserver: { url: null }, audio_enabled: true,
   power: { available: false, cpu_cap: false, max_freq_mhz: null },
-  camera: { connected: false, all_centroids: null, matched_centroids: null },
+  camera: { connected: false, frame_id: null, all_centroids: null, matched_centroids: null },
   location: { latitude: null, longitude: null, source: null },
   dev_mode: false, min_matches: 8, max_prob: 0.2, sample_active: null,
 };

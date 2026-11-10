@@ -30,7 +30,7 @@ Headless mode: `--no-window`, shipped for the Pi as the `pushnav-headless` .deb
 │    Vite HMR)                                  │
 │  - Step wizard (Camera → Sync → Roll → Track) │
 │  - Sky View 3D dome (pointing + target alt/az)│
-│  - Live view via /frame.mjpg + SVG overlays   │
+│  - Live view via /frame.jpg + SVG overlays    │
 │  - Exposure/Gain control sliders              │
 │  - Navigation guidance + star overlay         │
 │  - Subscribes to /ws for state                │
@@ -93,7 +93,9 @@ Main thread runs the pywebview event loop. The OS webview renders the
 React UI which:
 
 - Subscribes to `/ws` over WebSocket for state (~10 Hz)
-- Displays `/frame.mjpg` as a continuous MJPEG stream in an `<img>` tag
+- Fetches `/frame.jpg` whenever the `/ws` payload's `camera.frame_id`
+  changes and shows it in an `<img>` (one short request per frame, so the
+  view recovers by itself after a phone sleeps)
 - Renders star overlays, navigation guidance, and the wizard via SVG
 - POSTs to `/api/*` for actions (wizard advance, sync select, control set,
   settings, dev injection)
@@ -211,6 +213,7 @@ Runs an aiohttp-based HTTP + WebSocket server on `0.0.0.0:<webserver.port>`
 HTTP GET /              → serves the React build (web_dist_dir/index.html);
                           dev workflow uses Vite on :5173 instead
 HTTP GET /static/*      → React build assets
+HTTP GET /frame.jpg     → the latest camera frame as one JPEG (what the UI uses)
 HTTP GET /frame.mjpg    → multipart MJPEG of the latest camera frame (~10 Hz)
 HTTP GET /sounds/*      → serves WAV audio files
 WebSocket /ws           → pushes JSON state at ~10 Hz to every connected client

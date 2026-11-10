@@ -1,4 +1,5 @@
 import type { EnginePayload } from "@/lib/types";
+import { useLatestFrame } from "@/hooks/useLatestFrame";
 import { StarOverlay } from "./StarOverlay";
 import { NavOverlay } from "./NavOverlay";
 import { SyncCandidatesOverlay } from "./SyncCandidatesOverlay";
@@ -16,17 +17,20 @@ export function LiveView({ state, showStars }: Props) {
   const { image_w, image_h } = state;
   const noStars =
     NO_STARS_STATES.includes(state.state) && state.failures >= 3;
+  const frameUrl = useLatestFrame(state.camera?.frame_id);
 
   return (
     <div
       className="relative bg-black w-full overflow-hidden rounded-xl border"
       style={{ aspectRatio: `${image_w} / ${image_h}` }}
     >
-      <img
-        src="/frame.mjpg"
-        alt="Live camera frame"
-        className="absolute inset-0 w-full h-full object-cover"
-      />
+      {frameUrl && (
+        <img
+          src={frameUrl}
+          alt="Live camera frame"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      )}
       <svg
         className="absolute inset-0 w-full h-full"
         viewBox={`0 0 ${image_w} ${image_h}`}

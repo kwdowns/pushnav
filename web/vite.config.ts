@@ -18,6 +18,7 @@ export default defineConfig({
     proxy: {
       "/ws":         { target: "ws://localhost:8765", ws: true },
       "/frame.mjpg": "http://localhost:8765",
+      "/frame.jpg":  "http://localhost:8765",
       "/api":        "http://localhost:8765",
       "/sounds":     "http://localhost:8765",
       "/assets":     "http://localhost:8765",

@@ -324,7 +324,7 @@ python/evf/            Python application
   solver/              tetra3rs (Rust) plate-solve wrapper + body-frame sync
   stellarium/          Stellarium binary TCP server (port 10001)
   lx200/               LX200 Classic TCP server (port 4030, SkySafari / INDI / ASCOM)
-  webserver/           aiohttp HTTP + WebSocket server (serves React, /ws, /frame.mjpg, /api/*)
+  webserver/           aiohttp HTTP + WebSocket server (serves React, /ws, /frame.jpg, /frame.mjpg, /api/*)
   config/              JSON config + logging setup
   network.py           Shared LAN-IP probe used by webserver and engine
 web/                   React + Vite + TypeScript + Tailwind + shadcn/ui front-end

@@ -88,6 +88,8 @@ export interface ActivityLine {
 
 export interface CameraBlock {
   connected: boolean;
+  /** Changes with every new camera frame; LiveView fetches /frame.jpg on change. */
+  frame_id: number | null;
   all_centroids: number[][] | null;     // [[y, x], ...]
   matched_centroids: number[][] | null; // [[y, x], ...]
 }

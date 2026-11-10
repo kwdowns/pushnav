@@ -41,7 +41,8 @@ This system acts as a real-time electronic encoder replacement using plate solvi
 
 ### Live View
 - Continuous MJPEG stream from camera subprocess.
-- Displayed in the React UI via the webserver's `/frame.mjpg` endpoint.
+- Displayed in the React UI by fetching the webserver's `/frame.jpg` for
+  each new frame (`/frame.mjpg` still serves a continuous MJPEG stream).
 - No frame buffering beyond latest frame.
 - Optional star overlay (detected + matched centroids), drawn in SVG.
 - Optional zoom slider for preview.

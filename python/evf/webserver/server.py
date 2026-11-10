@@ -114,7 +114,9 @@ async def _security_headers_middleware(request: web.Request, handler) -> web.Str
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:",
+        # blob: for the live view, which shows each fetched /frame.jpg
+        # through an object URL (see web/src/hooks/useLatestFrame.ts).
+        "img-src 'self' data: blob:",
     )
     return response
 
@@ -142,6 +144,7 @@ class WebServer:
     HTTP GET /          — serves the React build (web_dist_dir / index.html)
     HTTP GET /static/*  — React build assets (when web_dist_dir() exists)
     HTTP GET /sounds/*  — serves WAV audio files
+    HTTP GET /frame.jpg  — the latest camera frame as one JPEG (used by the UI)
     HTTP GET /frame.mjpg — multipart MJPEG of the latest camera frame
     WebSocket /ws       — pushes JSON state at ~10 Hz to all clients
     HTTP POST /api/*    — wizard, controls, settings, dev actions
@@ -270,6 +273,7 @@ class WebServer:
         app.router.add_get("/api/version", self._handle_version)
         app.router.add_get("/ws", self._handle_ws)
         app.router.add_get("/frame.mjpg", self._handle_mjpeg)
+        app.router.add_get("/frame.jpg", self._handle_frame_jpg)
         app.router.add_post("/api/wizard/advance", self._api_wizard_advance)
         app.router.add_post("/api/sync/retry", self._api_sync_retry)
         app.router.add_post("/api/sync/select", self._api_sync_select)
@@ -356,7 +360,31 @@ class WebServer:
             "protocol_version": data.get("protocol_version"),
         })
 
-    # -- MJPEG frame stream ---------------------------------------------------
+    # -- Camera frames ------------------------------------------------------
+
+    async def _handle_frame_jpg(self, request: web.Request) -> web.Response:
+        """The latest camera frame as one JPEG.
+
+        The React UI fetches this whenever the WebSocket payload's
+        `camera.frame_id` changes. Unlike a long-lived MJPEG stream, a plain
+        request per frame survives a phone locking and unlocking: the next
+        payload simply triggers the next fetch. The `?id=` query the UI adds
+        is only there to keep caches out of the way.
+        """
+        if self._frame_buffer is None:
+            return web.Response(status=503, text="No frame buffer")
+        jpeg, _ts, fid = self._frame_buffer.get()
+        if jpeg is None:
+            return web.Response(status=404, text="No frame yet")
+        return web.Response(
+            body=jpeg,
+            content_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "X-Frame-Id": str(fid),
+            },
+        )
+
 
     async def _handle_mjpeg(self, request: web.Request) -> web.StreamResponse:
         """Multipart MJPEG stream of the latest camera frame.
@@ -639,8 +667,13 @@ class WebServer:
             "in_progress": False, "candidates": [], "selected_idx": None, "error": None,
         }
         activity_blk = self._activity() if self._activity else {}
+        jpeg, _ts, frame_id = (
+            self._frame_buffer.get() if self._frame_buffer else (None, 0.0, 0)
+        )
         camera_blk = {
-            "connected": True if (self._frame_buffer and self._frame_buffer.get()[0]) else False,
+            "connected": jpeg is not None,
+            # Changes with every new frame; the UI fetches /frame.jpg on change.
+            "frame_id": frame_id if jpeg is not None else None,
             "all_centroids": snap.all_centroids if snap.valid else None,
             "matched_centroids": snap.matched_centroids if snap.valid else None,
         }

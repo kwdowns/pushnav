@@ -207,7 +207,7 @@ specs/start/                    # design specifications
 - **three** + **@react-three/fiber** + **@react-three/drei** — WebGL rendering for the always-visible Sky View 3D dome (`web/src/components/live-view/SkyDome/`). Labels use drei `<Html>` to stay offline; `<Text>` is intentionally avoided so troika-three-text's CDN font-resolver is never loaded
 - **numpy**, **Pillow** — image/array handling (solver wrapper) and the sync rotation maths
 - **playsound3** — audio feedback for solve lock/lost events
-- **aiohttp** — HTTP + WebSocket server (serves the React build, /ws state, /frame.mjpg, /api/*)
+- **aiohttp** — HTTP + WebSocket server (serves the React build, /ws state, /frame.jpg + /frame.mjpg, /api/*)
 - **qrcode.react** (npm) — QR-code rendering for the LAN URL in the Settings panel
 - **pyerfa** — IAU 2006 precession (J2000 ↔ JNow) for the LX200 protocol server
 - **pyyaml** (dev group) — used by `scripts/sync_catalog.py` to parse the
