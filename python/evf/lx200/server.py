@@ -46,7 +46,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_HOST = "0.0.0.0"    # LAN-reachable - LX200 clients include mobile apps
 _DEFAULT_PORT = 4030          # SkyFi/SkySafari convention
-_SELECT_POLL_INTERVAL = 0.1   # seconds - snappy response to commands
+_SELECT_POLL_INTERVAL = 1.0   # seconds - only bounds stop() latency; select()
+                              # returns as soon as a client or command arrives
 _MAX_RECV_BUFFER = 4096       # bytes - trim oldest half and WARN if exceeded
 # A connect counts as a new client only after this much LX200 silence:
 # SkySafari's polling mode reconnects about once a second.

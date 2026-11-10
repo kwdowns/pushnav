@@ -120,7 +120,7 @@ class StatusLedController:
         self,
         snapshot: Callable[[], tuple[EngineState, bool, int]],
         leds: dict[str, Path],
-        poll_s: float = 0.1,
+        poll_s: float = 0.25,  # status changes and flashes show within this
     ) -> None:
         self._snapshot = snapshot
         self._leds = leds
