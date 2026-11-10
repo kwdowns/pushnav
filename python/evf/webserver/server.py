@@ -73,6 +73,7 @@ class EngineActions(Protocol):
     def clear_goto_target(self) -> None: ...
     def set_goto_target(self, ra_deg: float, dec_deg: float) -> None: ...
     def set_audio_enabled(self, enabled: bool) -> None: ...
+    def set_cpu_cap(self, enabled: bool) -> None: ...
     def inject_sample(self, name: str | None) -> None: ...
     def inject_target(self, ra_deg: float, dec_deg: float) -> None: ...
     def capture_frame(self): ...  # returns Path | None
@@ -516,6 +517,13 @@ class WebServer:
             )
             if resp.status >= 400:
                 return resp
+        if "cpu_cap" in body:
+            resp = await self._handle_api(
+                request,
+                lambda: self._actions.set_cpu_cap(bool(body["cpu_cap"])),
+            )
+            if resp.status >= 400:
+                return resp
         if "min_matches" in body:
             resp = await self._handle_api(
                 request,
@@ -671,6 +679,9 @@ class WebServer:
             "lx200":      activity_blk.get("lx200",      {"active": False, "address": None}),
             "webserver":  activity_blk.get("webserver",  {"url": None}),
             "audio_enabled": activity_blk.get("audio_enabled", True),
+            "power": activity_blk.get(
+                "power", {"available": False, "cpu_cap": False, "max_freq_mhz": None}
+            ),
             "camera": camera_blk,
             "location": location_blk,
             "dev_mode": self._dev_mode,

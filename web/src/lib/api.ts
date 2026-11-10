@@ -28,6 +28,7 @@ export const api = {
     post("/api/goto/set", { ra_deg, dec_deg }),
   setSettings: (s: {
     audio_enabled?: boolean;
+    cpu_cap?: boolean;
     location?: { latitude: number; longitude: number } | null;
     lx200_epoch?: "jnow" | "j2000";
   }) => post("/api/settings", s),

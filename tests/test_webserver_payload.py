@@ -42,6 +42,7 @@ def test_payload_contains_new_fields(tmp_path, monkeypatch):
     assert "lx200" in payload
     assert "webserver" in payload
     assert "audio_enabled" in payload
+    assert payload["power"]["available"] is False  # default when not given
     assert "camera" in payload  # centroid arrays
     # Roundtrip JSON-serializable
     assert json.dumps(payload)

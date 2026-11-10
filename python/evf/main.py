@@ -180,6 +180,7 @@ def main() -> None:
         # so a camera plugged in after boot (or after recovery gave up) comes up.
         engine.start_camera_watchdog()
         engine.start_status_led()
+        engine.start_cpu_cap()
         logger.info("Running headless (--no-window). Press Ctrl-C to exit.")
         stop = threading.Event()
         signal.signal(signal.SIGINT, lambda *_: stop.set())

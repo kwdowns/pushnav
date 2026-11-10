@@ -17,10 +17,12 @@ ExecStart=/usr/bin/pushnav-headless
 # exit 0, and 'take' honours led.enabled in config.json.
 ExecStartPre=+/usr/lib/pushnav-headless/python/bin/python3 -s -m evf.engine.led_helper take --group pushnav
 ExecStopPost=+/usr/lib/pushnav-headless/python/bin/python3 -s -m evf.engine.led_helper restore
-# Power saving: cap the CPU clock at power.max_freq_mhz from config.json
-# while PushNav runs (the governor still idles it at its lowest clock),
-# and put the original cap back afterwards. Both always exit 0.
-ExecStartPre=+/usr/lib/pushnav-headless/python/bin/python3 -s -m evf.engine.cpufreq_helper limit
+# Power saving: 'take' saves the CPU's top clock, caps it as config.json
+# says (power.cpu_cap, power.max_freq_mhz) and lets group pushnav change
+# the cap, so the Settings panel can switch it while PushNav runs (the
+# governor still idles the CPU at its lowest clock). 'restore' gives the
+# original back, after a crash too. Both always exit 0.
+ExecStartPre=+/usr/lib/pushnav-headless/python/bin/python3 -s -m evf.engine.cpufreq_helper take --group pushnav
 ExecStopPost=+/usr/lib/pushnav-headless/python/bin/python3 -s -m evf.engine.cpufreq_helper restore
 # Debug mode: a jumper from GPIO21 (pin 40) to GND (pin 39). This root step
 # reads the pin and creates /run/pushnav-headless/debug if it's jumpered;

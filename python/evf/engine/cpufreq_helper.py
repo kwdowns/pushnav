@@ -15,61 +15,62 @@
 # You should have received a copy of the GNU General Public License
 # along with PushNav. If not, see <https://www.gnu.org/licenses/>.
 
-"""Root helper that caps the Pi's CPU clock while PushNav runs.
+"""Root helper that lets PushNav cap the Pi's CPU clock, and undoes it.
 
 Run by the pushnav-headless service as root, outside its sandbox:
 
-    ExecStartPre=+... -m evf.engine.cpufreq_helper limit
+    ExecStartPre=+... -m evf.engine.cpufreq_helper take --group pushnav
     ExecStopPost=+... -m evf.engine.cpufreq_helper restore
 
-A plate solve takes tens of milliseconds and an exposure takes most of a
-second, so the CPU has plenty of slack: `limit` lowers each cpufreq
-policy's `scaling_max_freq` to `power.max_freq_mhz` from config.json and
-leaves the governor alone, so the CPU still drops to its lowest clock
-when idle. The original value is saved to /run (tmpfs, so it never
-outlives a boot) and `restore` puts it back; ExecStopPost also runs after
-a crash.
+`take` saves each cpufreq policy's `scaling_max_freq` and its file
+ownership to /run (tmpfs, so it never outlives a boot), applies the cap
+from config.json (`power.cpu_cap`, `power.max_freq_mhz`) and lets the
+group write the file, so the engine (evf.engine.cpufreq) can switch the
+cap from the Settings panel. `restore` puts everything back; ExecStopPost
+also runs after a crash.
 
 Both commands always exit 0: a missing or odd cpufreq interface must
 never stop PushNav from starting.
 
 For development on the Pi: `sudo uv run python -m evf.engine.cpufreq_helper
-limit --config ~/.config/electronic-viewfinder/config.json`, and `restore`
-when done.
+take --group "$(id -gn)" --config ~/.config/electronic-viewfinder/config.json`,
+and `restore` when done.
 """
 
 import argparse
 import json
 import logging
+import os
+import stat
 import sys
 from pathlib import Path
 
 from evf.config.manager import DEFAULT_CONFIG, _default_config_dir
+from evf.engine.cpufreq import CPUFREQ_SYSFS, cap_policy
 
 logger = logging.getLogger("evf.cpufreq_helper")
 
-CPUFREQ_SYSFS = Path("/sys/devices/system/cpu/cpufreq")
 STATE_DIR = Path("/run/pushnav-headless-cpufreq")
 
 
-def max_freq_mhz(config_path: Path) -> int | None:
-    """`power.max_freq_mhz` from config.json, or None to leave the clock alone.
+def power_config(config_path: Path) -> tuple[bool, int]:
+    """(`power.cpu_cap`, `power.max_freq_mhz`) from config.json.
 
-    A missing file or key means the default. null, 0, false or anything
-    that isn't a positive whole number turns the cap off. Read-only on
-    purpose: this runs as root and must never create or rewrite the
-    service user's config file.
+    Missing or unreadable values mean the defaults. Read-only on purpose:
+    this runs as root and must never create or rewrite the service user's
+    config file.
     """
-    default = DEFAULT_CONFIG["power"]["max_freq_mhz"]
+    defaults = DEFAULT_CONFIG["power"]
     try:
         with open(config_path) as f:
             power = json.load(f).get("power", {})
-        value = power.get("max_freq_mhz", default)
+        enabled = power.get("cpu_cap", defaults["cpu_cap"])
+        mhz = power.get("max_freq_mhz", defaults["max_freq_mhz"])
     except (OSError, ValueError, AttributeError):
-        value = default
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        return None
-    return value
+        return defaults["cpu_cap"], defaults["max_freq_mhz"]
+    if isinstance(mhz, bool) or not isinstance(mhz, int) or mhz <= 0:
+        mhz = defaults["max_freq_mhz"]
+    return enabled is not False, mhz
 
 
 def _policies(root: Path) -> list[Path]:
@@ -77,36 +78,40 @@ def _policies(root: Path) -> list[Path]:
                   if (p / "scaling_max_freq").exists())
 
 
-def _read_khz(path: Path) -> int:
-    return int(path.read_text().strip())
-
-
-def limit(root: Path, state_dir: Path, mhz: int) -> None:
+def take(root: Path, state_dir: Path, group: str, enabled: bool, mhz: int) -> None:
     policies = _policies(root)
     if not policies:
         logger.info("no cpufreq policies under %s; nothing to do", root)
         return
+    import grp  # POSIX only; imported here so the module loads anywhere
+
+    gid = grp.getgrnam(group).gr_gid
     state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     for policy in policies:
         try:
-            _limit_one(policy, state_dir, mhz * 1000)
+            _take_one(policy, state_dir, gid, mhz if enabled else None)
         except (OSError, ValueError) as exc:
-            logger.warning("%s: limit failed: %s", policy.name, exc)
+            logger.warning("%s: take failed: %s", policy.name, exc)
 
 
-def _limit_one(policy: Path, state_dir: Path, cap_khz: int) -> None:
+def _take_one(policy: Path, state_dir: Path, gid: int, mhz: int | None) -> None:
     max_file = policy / "scaling_max_freq"
     saved = state_dir / f"{policy.name}.json"
-    # Keep the first saved value: a second `limit` (restart without a
+    # Keep the first saved state: a second `take` (restart without a
     # restore in between) would otherwise record our own cap.
     if not saved.exists():
-        saved.write_text(json.dumps({"scaling_max_freq": _read_khz(max_file)}))
-    hw_min = _read_khz(policy / "cpuinfo_min_freq")
-    hw_max = _read_khz(policy / "cpuinfo_max_freq")
-    target = max(hw_min, min(cap_khz, hw_max))
-    max_file.write_text(str(target))
-    logger.info("%s: max clock %d MHz (hardware %d-%d MHz)", policy.name,
-                target // 1000, hw_min // 1000, hw_max // 1000)
+        st = max_file.stat()
+        saved.write_text(json.dumps({
+            "scaling_max_freq": int(max_file.read_text().strip()),
+            "uid": st.st_uid,
+            "gid": st.st_gid,
+            "mode": stat.S_IMODE(st.st_mode),
+        }))
+    khz = cap_policy(policy, mhz)
+    os.chown(max_file, -1, gid)
+    os.chmod(max_file, stat.S_IMODE(max_file.stat().st_mode) | stat.S_IWGRP)
+    logger.info("%s: max clock %d MHz (cap %s), writable by gid %d",
+                policy.name, khz // 1000, "on" if mhz else "off", gid)
 
 
 def restore(root: Path, state_dir: Path) -> None:
@@ -115,9 +120,13 @@ def restore(root: Path, state_dir: Path) -> None:
     for saved in sorted(state_dir.glob("*.json")):
         policy = root / saved.stem
         try:
-            khz = int(json.loads(saved.read_text())["scaling_max_freq"])
-            (policy / "scaling_max_freq").write_text(str(khz))
-            logger.info("%s: max clock restored to %d MHz", policy.name, khz // 1000)
+            s = json.loads(saved.read_text())
+            max_file = policy / "scaling_max_freq"
+            os.chown(max_file, s["uid"], s["gid"])
+            os.chmod(max_file, s["mode"])
+            max_file.write_text(str(int(s["scaling_max_freq"])))
+            logger.info("%s: max clock restored to %d MHz",
+                        policy.name, int(s["scaling_max_freq"]) // 1000)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             logger.warning("%s: restore failed: %s", policy.name, exc)
         saved.unlink(missing_ok=True)
@@ -125,7 +134,8 @@ def restore(root: Path, state_dir: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m evf.engine.cpufreq_helper")
-    parser.add_argument("action", choices=["limit", "restore"])
+    parser.add_argument("action", choices=["take", "restore"])
+    parser.add_argument("--group", default="pushnav")
     parser.add_argument("--root", type=Path, default=CPUFREQ_SYSFS)
     parser.add_argument("--state-dir", type=Path, default=STATE_DIR)
     parser.add_argument("--config", type=Path,
@@ -134,13 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="cpufreq_helper: %(message)s",
                         stream=sys.stderr)
     try:
-        if args.action == "limit":
-            mhz = max_freq_mhz(args.config)
-            if mhz is None:
-                logger.info("power.max_freq_mhz is off in %s; leaving the clock alone",
-                            args.config)
-            else:
-                limit(args.root, args.state_dir, mhz)
+        if args.action == "take":
+            enabled, mhz = power_config(args.config)
+            take(args.root, args.state_dir, args.group, enabled, mhz)
         else:
             restore(args.root, args.state_dir)
     except Exception as exc:  # never block the service

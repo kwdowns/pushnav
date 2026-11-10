@@ -38,6 +38,7 @@ from evf.engine.goto_target import GotoTarget
 from evf.engine.pointing import PointingState
 from evf.engine.sample_injector import SampleInjector
 from evf.engine.state import EngineState, StateMachine
+from evf.engine.cpufreq import CpuFreqCap, find_policies
 from evf.engine.status_led import StatusLedController, find_leds
 from evf.solver.solver import PlateSolver
 import numpy as np
@@ -135,6 +136,7 @@ class Engine:
         self._camera_lock = threading.Lock()
         self._camera_watchdog: threading.Thread | None = None
         self._status_led: StatusLedController | None = None
+        self._cpufreq: CpuFreqCap | None = None
         # Set once shutdown() begins; stops the watchdog and refuses retries.
         self._shutting_down = threading.Event()
         # "Waiting for camera" is logged once per absence, not every attempt.
@@ -223,6 +225,36 @@ class Engine:
 
     def set_audio_enabled(self, enabled: bool) -> None:
         self.audio_enabled = enabled
+
+    @property
+    def power(self) -> dict:
+        """CPU clock cap state for the Settings panel."""
+        return {
+            "available": self._cpufreq is not None and self._cpufreq.available,
+            "cpu_cap": self._config.cpu_cap,
+            "max_freq_mhz": self._config.max_freq_mhz,
+        }
+
+    def set_cpu_cap(self, enabled: bool) -> None:
+        """Switch the CPU clock cap; saved to config and applied at once."""
+        self._config.cpu_cap = enabled
+        if self._cpufreq is not None:
+            self._cpufreq.apply(enabled, self._config.max_freq_mhz)
+
+    def start_cpu_cap(self) -> None:
+        """Apply the CPU clock cap from config (headless mode).
+
+        Needs cpufreq files this process may write, which only the
+        pushnav-headless service's root helper (evf.engine.cpufreq_helper)
+        sets up; anywhere else this logs one line and the Settings switch
+        stays hidden.
+        """
+        policies = find_policies()
+        if not policies:
+            logger.info("CPU clock cap: no writable cpufreq policies, not used")
+            return
+        self._cpufreq = CpuFreqCap(policies)
+        self._cpufreq.apply(self._config.cpu_cap, self._config.max_freq_mhz)
 
     def set_lx200_epoch(self, epoch: str) -> None:
         """Set the LX200 reported coordinate epoch ('jnow' or 'j2000').
@@ -497,6 +529,7 @@ class Engine:
                     },
                     "webserver": {"url": self.web_url},
                     "audio_enabled": self.audio_enabled,
+                    "power": self.power,
                 },
                 stellarium_location=lambda: (
                     (self.stellarium_status or {}).get("location")

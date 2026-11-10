@@ -111,6 +111,12 @@ export interface EnginePayload {
   lx200: ActivityLine;
   webserver: { url: string | null };
   audio_enabled: boolean;
+  /** Headless Pi CPU clock cap; `available` is false off the Pi. */
+  power: {
+    available: boolean;
+    cpu_cap: boolean;
+    max_freq_mhz: number | null;
+  };
   camera: CameraBlock;
   location: {
     latitude: number | null;

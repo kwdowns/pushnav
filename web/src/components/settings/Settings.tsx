@@ -51,6 +51,20 @@ export function Settings({ state, showStars, setShowStars, className }: Props) {
             onCheckedChange={(v) => api.setSettings({ audio_enabled: v })}
           />
         </Row>
+        {state.power?.available && (
+          <>
+            <Row label="Power saving">
+              <Switch
+                checked={state.power.cpu_cap}
+                onCheckedChange={(v) => api.setSettings({ cpu_cap: v })}
+              />
+            </Row>
+            <p className="text-xs text-muted-foreground leading-snug">
+              Caps the CPU at {state.power.max_freq_mhz} MHz. Solves take
+              a little longer but still well under an exposure.
+            </p>
+          </>
+        )}
         <Separator />
         <div className="space-y-2">
           <div className="text-sm font-medium text-primary">

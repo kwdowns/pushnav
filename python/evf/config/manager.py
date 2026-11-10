@@ -36,9 +36,9 @@ DEFAULT_CONFIG = {
     "audio": {"enabled": True},
     # Headless Pi status LED (see evf/engine/status_led.py).
     "led": {"enabled": True},
-    # Headless Pi CPU clock cap in MHz, null for none (see
-    # evf/engine/cpufreq_helper.py). Solves take tens of ms per exposure.
-    "power": {"max_freq_mhz": 1200},
+    # Headless Pi CPU clock cap (see evf/engine/cpufreq.py). Solves take
+    # tens of ms per exposure, so the CPU can run slower.
+    "power": {"cpu_cap": True, "max_freq_mhz": 1200},
     "lx200": {"epoch": "jnow"},
     "webserver": {"port": 8765},
     "location": {"latitude": None, "longitude": None},
@@ -202,6 +202,21 @@ class ConfigManager:
     @property
     def led_enabled(self) -> bool:
         return self.get("led", "enabled") is not False
+
+    @property
+    def cpu_cap(self) -> bool:
+        return self.get("power", "cpu_cap") is not False
+
+    @cpu_cap.setter
+    def cpu_cap(self, value: bool) -> None:
+        self.set("power", "cpu_cap", bool(value))
+
+    @property
+    def max_freq_mhz(self) -> int:
+        value = self.get("power", "max_freq_mhz")
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return DEFAULT_CONFIG["power"]["max_freq_mhz"]
+        return value
 
     @property
     def verbose(self) -> bool:

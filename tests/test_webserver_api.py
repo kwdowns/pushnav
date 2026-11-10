@@ -216,3 +216,13 @@ async def test_ws_gets_state_after_idle_and_reconnect(server_and_actions):
                 msg = await asyncio.wait_for(conn.receive_str(), timeout=2.0)
                 assert msg.startswith("{")
             await asyncio.sleep(0.3)
+
+
+@pytest.mark.asyncio
+async def test_settings_cpu_cap(server_and_actions):
+    ws, actions = server_and_actions
+    async with ClientSession() as s:
+        async with s.post(f"http://127.0.0.1:{ws._port}/api/settings",
+                          json={"cpu_cap": False}) as resp:
+            assert resp.status == 204
+    actions.set_cpu_cap.assert_called_once_with(False)
