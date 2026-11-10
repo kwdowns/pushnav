@@ -37,7 +37,7 @@ SVG_NS = "{http://www.w3.org/2000/svg}"
 
 def _info(**overrides):
     values = dict(ssid="PushNav-3F2A", wifi_password="pushnav123", ip="192.168.77.1",
-                  port=8765, ssh_user="pi", ssh_password="pushnav")
+                  port=8780, ssh_user="pi", ssh_password="pushnav")
     values.update(overrides)
     return label.LabelInfo(**values)
 
@@ -94,7 +94,7 @@ def test_svg_is_50_by_20_mm_with_outlined_text():
 
 
 def _expected_qr():
-    matrix = segno.make("http://192.168.77.1:8765", error="m", boost_error=False).matrix
+    matrix = segno.make("http://192.168.77.1:8780", error="m", boost_error=False).matrix
     return [[bool(v) for v in row] for row in matrix]
 
 

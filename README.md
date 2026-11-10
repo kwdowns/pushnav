@@ -80,7 +80,7 @@ Supports **Windows**, **macOS**, and **Linux**, plus a headless package for the 
 - Audio feedback for lock/lost/GOTO events
 - **Raspberry Pi (headless):** the `pushnav-headless` package runs PushNav as a background service on a Pi 3A+, 4 or 5, controlled from your phone. With no screen attached, the Pi's own LEDs show the status: red when it needs attention (no camera, error), green when it's working (needs sync, tracking, lost the stars). See the [Pi guide](https://meridianfield.github.io/pushnav/rpi-headless/#status-light). Two ways to set it up:
   - **Install with apt** on a Pi you set up yourself, on your own Wi-Fi.
-  - **Ready-made PushNav SD card:** flash Raspberry Pi OS Lite, copy the release's `.deb` and `user-data` onto the card, and boot. The Pi becomes a dedicated box with its own hotspot, `PushNav-XXXX`, at `http://192.168.77.1:8765`.
+  - **Ready-made PushNav SD card:** flash Raspberry Pi OS Lite, copy the release's `.deb` and `user-data` onto the card, and boot. The Pi becomes a dedicated box with its own hotspot, `PushNav-XXXX`, at `http://192.168.77.1:8780`.
 - Always-visible **Sky View** — an interactive 3D hemispheric dome rendered alongside the wizard, showing where the scope is pointing (yellow marker + semi-transparent red telescope cylinder) and where the target sits (cream marker with name label), with solid/dashed lines from the dome centre. Useful as a spatial check during sync, roll calibration, and tracking alike.
 - Saves calibration for quick re-sync
 - Works from urban light-polluted skies with the right camera/lens combo (see hardware guide)
@@ -189,7 +189,7 @@ frame capture).
 
 The helper scripts launch `evf.main`; the Python entry-point itself
 probes `localhost:5173` and uses Vite's HMR when it's running, falling
-back to the prebuilt bundle on `:8765` otherwise. So you can leave Vite
+back to the prebuilt bundle on `:8780` otherwise. So you can leave Vite
 out and everything still works in one terminal:
 
 ```bash

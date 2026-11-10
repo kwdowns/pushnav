@@ -57,7 +57,7 @@ def _vite_running(port: int = 5173) -> bool:
     instead: `web/public/inapp-title.png` is served at
     `/static/inapp-title.png` because of `vite.config.ts`'s
     `base: "/static/"`. A foreign Vite (default base `"/"`) 404s the path
-    so we correctly fall through to the prod URL on :8765.
+    so we correctly fall through to the prod URL on :8780.
     """
     # Use `localhost` (not 127.0.0.1) so the OS resolver tries both ::1 and
     # 127.0.0.1 — Vite on macOS binds IPv6-only by default, while other

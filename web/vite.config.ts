@@ -16,12 +16,12 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/ws":         { target: "ws://localhost:8765", ws: true },
-      "/frame.mjpg": "http://localhost:8765",
-      "/frame.jpg":  "http://localhost:8765",
-      "/api":        "http://localhost:8765",
-      "/sounds":     "http://localhost:8765",
-      "/assets":     "http://localhost:8765",
+      "/ws":         { target: "ws://localhost:8780", ws: true },
+      "/frame.mjpg": "http://localhost:8780",
+      "/frame.jpg":  "http://localhost:8780",
+      "/api":        "http://localhost:8780",
+      "/sounds":     "http://localhost:8780",
+      "/assets":     "http://localhost:8780",
     },
   },
   test: {

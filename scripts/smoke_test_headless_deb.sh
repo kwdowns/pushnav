@@ -51,7 +51,7 @@ su -s /bin/sh pushnav -c 'cd /var/lib && HOME=/tmp XDG_CONFIG_HOME=/tmp/c XDG_ST
     >/tmp/run.log 2>&1 &
 version=""
 for _ in $(seq 1 60); do
-    version="$(curl -sf http://127.0.0.1:8765/api/version || true)"
+    version="$(curl -sf http://127.0.0.1:8780/api/version || true)"
     [ -n "$version" ] && break
     sleep 1
 done

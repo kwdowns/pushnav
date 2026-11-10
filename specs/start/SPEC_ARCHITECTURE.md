@@ -25,7 +25,7 @@ Headless mode: `--no-window`, shipped for the Pi as the `pushnav-headless` .deb
 │                 UI Layer                      │
 │       (pywebview window — OS webview)         │
 │                                               │
-│  - React UI loaded from http://localhost:8765 │
+│  - React UI loaded from http://localhost:8780 │
 │    (prod) or http://localhost:5173 (dev,      │
 │    Vite HMR)                                  │
 │  - Step wizard (Camera → Sync → Roll → Track) │
@@ -207,7 +207,7 @@ break the session.
 ## 4.5 Web Server Thread
 
 Runs an aiohttp-based HTTP + WebSocket server on `0.0.0.0:<webserver.port>`
-(default 8765) in its own asyncio event loop on a dedicated daemon thread.
+(default 8780) in its own asyncio event loop on a dedicated daemon thread.
 
 ```
 HTTP GET /              → serves the React build (web_dist_dir/index.html);
@@ -643,7 +643,7 @@ Default configuration:
   "calibration": {"finder_rotation": 0.0, "sync_d_body": null},
   "logging": {"verbose": false},
   "audio": {"enabled": true},
-  "webserver": {"port": 8765}
+  "webserver": {"port": 8780}
 }
 ```
 

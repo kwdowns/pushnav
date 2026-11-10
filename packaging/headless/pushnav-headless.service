@@ -1,5 +1,5 @@
 [Unit]
-Description=PushNav headless plate-solving push-to (web UI on port 8765)
+Description=PushNav headless plate-solving push-to (web UI on port 8780)
 Documentation=https://meridianfield.github.io/pushnav/rpi-headless/
 Wants=network-online.target
 After=network-online.target

@@ -32,7 +32,7 @@ if uv run python scripts/build_catalogs.py --needs-rebuild; then
 fi
 
 # evf.main auto-detects Vite on :5173 and otherwise loads the prebuilt
-# bundle from :8765 — rebuild on every dev launch so source edits are
+# bundle from :8780 — rebuild on every dev launch so source edits are
 # reflected. Skipped when Vite is serving HMR on :5173 because the bundle
 # isn't read in that path.
 if ! (exec 3<>/dev/tcp/localhost/5173) 2>/dev/null; then

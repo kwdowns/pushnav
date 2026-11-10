@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 CONFIG_VERSION = 1
 
+# The web server's default port until it moved to 8780 (8765 clashes with
+# other apps). A config that still holds it is moved to the new default.
+_OLD_DEFAULT_WEB_PORT = 8765
+
 DEFAULT_CONFIG = {
     "version": CONFIG_VERSION,
     "solver": {"min_matches": 8, "max_prob": 0.2},
@@ -40,7 +44,7 @@ DEFAULT_CONFIG = {
     # tens of ms per exposure, so the CPU can run slower.
     "power": {"cpu_cap": True, "max_freq_mhz": 1200},
     "lx200": {"epoch": "jnow"},
-    "webserver": {"port": 8765},
+    "webserver": {"port": 8780},
     "location": {"latitude": None, "longitude": None},
 }
 
@@ -73,6 +77,14 @@ class ConfigManager:
 
     # -- persistence ----------------------------------------------------------
 
+    def _migrate_old_default_port(self) -> None:
+        web = self._data.get("webserver")
+        if isinstance(web, dict) and web.get("port") == _OLD_DEFAULT_WEB_PORT:
+            web["port"] = DEFAULT_CONFIG["webserver"]["port"]
+            self._dirty = True
+            logger.info("Web server port moved from the old default %d to %d",
+                        _OLD_DEFAULT_WEB_PORT, web["port"])
+
     def _load(self) -> None:
         if self._path.exists():
             try:
@@ -89,6 +101,7 @@ class ConfigManager:
                 else:
                     # Merge in any missing keys from defaults
                     self._data = _merge_defaults(DEFAULT_CONFIG, self._data)
+                    self._migrate_old_default_port()
                 logger.info("Loaded config from %s", self._path)
             except (json.JSONDecodeError, OSError) as exc:
                 logger.error("Failed to read config (%s) — using defaults", exc)

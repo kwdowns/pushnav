@@ -7,7 +7,7 @@ title: Raspberry Pi (headless)
 PushNav runs headless on a Raspberry Pi 3A+, 4 or 5 as the `pushnav-headless`
 package. There is no window: PushNav runs in the background as a system
 service, and you control it from a phone or laptop browser at
-`http://<pi-address>:8765`. The laptop builds (macOS `.dmg`, Windows
+`http://<pi-address>:8780`. The laptop builds (macOS `.dmg`, Windows
 installer, Linux AppImage) are separate and unchanged.
 
 !!! info "Where to get it"
@@ -36,7 +36,7 @@ the same.
 |---|---|---|
 | **Best for** | People used to setting up a Pi, or a Pi that also does other things | A dedicated PushNav box, with no command line needed |
 | **Network** | Your existing Wi-Fi or Ethernet | The Pi's own Wi-Fi hotspot, `PushNav-XXXX` (no internet needed) |
-| **Open PushNav at** | `http://<pi-address>:8765` | `http://192.168.77.1:8765` |
+| **Open PushNav at** | `http://<pi-address>:8780` | `http://192.168.77.1:8780` |
 | **Setup** | Flash the card the usual way, SSH in, `apt install` the package | Flash the card, copy two files onto it, boot |
 | **Raspberry Pi OS** | 64-bit, bookworm or trixie | 64-bit **Lite**, **trixie** only |
 
@@ -79,7 +79,7 @@ For a Pi you set up yourself, on your own Wi-Fi or Ethernet.
 
     ```text
     PushNav headless is installed.
-      Open on your phone (same Wi-Fi):  http://192.168.0.111:8765
+      Open on your phone (same Wi-Fi):  http://192.168.0.111:8780
     ```
 
 5. Open that address on your phone. You can plug the camera in before or
@@ -125,8 +125,8 @@ boot. Lite is also what this setup was tested with.
    camera) or green slowly (ready).
 6. **Connect your phone** to the Wi-Fi network `PushNav-XXXX` (password
    `pushnav123`, unless you changed it) and open
-   **`http://192.168.77.1:8765`**. Your phone may warn that the network has
-   no internet: stay connected anyway. `http://pushnav.local:8765` also
+   **`http://192.168.77.1:8780`**. Your phone may warn that the network has
+   no internet: stay connected anyway. `http://pushnav.local:8780` also
    works on phones that support `.local` names (iPhones do; many Android
    phones don't).
 
@@ -356,7 +356,7 @@ cable and run `lsusb`: a supported camera appears as `32e6:9251`,
 can fail until the next reboot. If `lsusb` lists nothing but hubs, check
 `journalctl -k | grep "HC died"`, then reboot.
 
-**"PushNav is already running on port 8765" when you run `pushnav-headless`
+**"PushNav is already running on port 8780" when you run `pushnav-headless`
 by hand.** The service is already running. Stop it first with
 `sudo systemctl stop pushnav-headless`.
 
@@ -430,7 +430,7 @@ The ready-made SD card's first-boot configuration is
 code that opens PushNav on a phone, then the hotspot name and password,
 the web address and the SSH login.
 
-![Example label: a QR code, then PushNav, Wi-Fi PushNav-3F2A, Pass pushnav123, Web 192.168.77.1:8765, SSH pi / pushnav](assets/pi-label.png){ width="420" style="border: 1px solid #9e9e9e; border-radius: 4px" }
+![Example label: a QR code, then PushNav, Wi-Fi PushNav-3F2A, Pass pushnav123, Web 192.168.77.1:8780, SSH pi / pushnav](assets/pi-label.png){ width="420" style="border: 1px solid #9e9e9e; border-radius: 4px" }
 
 It runs on any computer (it doesn't need a Pi), from a copy of this
 repository with [uv](https://docs.astral.sh/uv/getting-started/installation/)

@@ -56,7 +56,7 @@ from PIL import Image
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 DEFAULT_USER_DATA = REPO_ROOT / "packaging/headless/user-data"
-DEFAULT_PORT = 8765
+DEFAULT_PORT = 8780
 DEFAULT_DPI = 300
 
 # Label geometry, in mm

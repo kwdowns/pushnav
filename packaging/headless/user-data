@@ -16,7 +16,7 @@
 # Result:
 #   Hotspot name : PushNav-XXXX       (XXXX = last 4 characters of the Pi's serial)
 #   Password     : pushnav123
-#   PushNav      : http://192.168.77.1:8765   (also http://pushnav.local:8765)
+#   PushNav      : http://192.168.77.1:8780   (also http://pushnav.local:8780)
 #   SSH login    : pi / pushnav
 #
 # CHANGE BEFORE USE (search for "CHANGE"):

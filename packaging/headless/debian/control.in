@@ -13,7 +13,7 @@ Description: PushNav plate-solving push-to for Raspberry Pi (headless)
  .
  This is the headless Raspberry Pi build: it runs as a systemd service
  with no window, and is controlled from a phone or laptop browser at
- http://<pi-ip>:8765. SkySafari / Stellarium Mobile connect over LX200
+ http://<pi-ip>:8780. SkySafari / Stellarium Mobile connect over LX200
  on port 4030, Stellarium desktop on port 10001.
  .
  It bundles its own Python 3.12 runtime under /usr/lib/pushnav-headless.

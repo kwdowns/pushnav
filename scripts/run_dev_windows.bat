@@ -29,7 +29,7 @@ if not errorlevel 1 (
 )
 
 REM evf.main auto-detects Vite on :5173 and otherwise loads the prebuilt
-REM bundle from :8765 -- rebuild on every dev launch so source edits are
+REM bundle from :8780 -- rebuild on every dev launch so source edits are
 REM reflected. Skipped when Vite is serving HMR on :5173 because the
 REM bundle isn't read in that path.
 netstat -an | findstr ":5173" | findstr "LISTENING" >nul
