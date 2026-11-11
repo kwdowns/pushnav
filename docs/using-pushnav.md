@@ -96,6 +96,29 @@ No app to install, no Bluetooth pairing, no configuration. Your phone and laptop
 !!! tip "On a Raspberry Pi"
     With the headless Raspberry Pi package, the phone *is* the screen: open `http://<pi-address>:8780` (`http://192.168.77.1:8780` on the hotspot of a [ready-made SD card](rpi-headless.md#b-ready-made-pushnav-sd-card)). When the phone isn't open, the Pi's own LEDs show the status at a glance. See [Status light](rpi-headless.md#status-light).
 
+### Install on your phone or tablet
+
+You can put PushNav on your home screen so it opens full screen, without the browser's address bar. PushNav is served over plain `http://` on your local network, so what you get depends on the device:
+
+**iPhone and iPad (Safari).** This works fully.
+
+1. Open the PushNav address in **Safari** (not Chrome or another browser).
+2. Tap the Share button, then **Add to Home Screen**.
+3. Leave **Open as Web App** switched on if it is shown, then tap **Add**.
+4. Open PushNav from the new home-screen icon. It runs full screen with no address bar.
+
+If you added the icon before and it still opens in Safari, delete it and add it again.
+
+**Android (Chrome).** Over plain `http://` Chrome does not offer a true "Install app". Menu, then **Add to Home screen** gives you a shortcut that may still open with Chrome's address bar. If it does:
+
+- Tap the **full screen** button in PushNav's top bar where it is shown, or
+- Make Chrome treat your PushNav address as secure, so it installs as a real app: open `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, enable it, type the address exactly as you use it (for example `http://192.168.77.1:8780`), relaunch Chrome, then use menu, **Install app**. This is a per-phone setting and only suits an address that never changes.
+
+Samsung Internet and Firefox on Android behave similarly to Chrome: the shortcut may open in the browser. Use the full screen button.
+
+!!! note "Why the limits?"
+    Browsers only let a site install as an app, or run a service worker, over HTTPS (or on `localhost`). PushNav has no HTTPS certificate on a LAN address, and has no offline mode, so it does not use a service worker. Installing never gives you offline use: PushNav always needs the running engine.
+
 !!! tip "Prefer SkySafari or Stellarium Mobile?"
     PushNav also speaks the LX200 telescope protocol, so you can pick targets and see your scope's crosshair directly in **SkySafari**, **Stellarium Mobile PLUS**, **INDI** (KStars/Ekos), or **ASCOM** clients. See [SkySafari & Other Apps](skysafari-setup.md) for the one-time setup.
 

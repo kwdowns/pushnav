@@ -14,28 +14,30 @@ export function SyncCandidatesOverlay({ state }: Props) {
   const candidates = state.sync.candidates;
   const selectedIdx = state.sync.selected_idx;
   if (!candidates.length) return null;
+  // Sized for a 1280 px frame; scale so the rings and numbers stay legible
+  // whatever the camera resolution.
+  const k = state.image_w / 1280;
 
   return (
     <g>
       {candidates.map((c, i) => {
         const isSelected = c.idx === selectedIdx;
-        const ringRadius = isSelected ? 26 : 18;
-        const ringStroke = isSelected ? "#ef4444" : "#dc2626";
-        const ringOpacity = isSelected ? 1 : 0.55;
-        const strokeWidth = isSelected ? 3 : 2;
+        const ringRadius = (isSelected ? 34 : 24) * k;
+        const ringClass = isSelected ? "stroke-overlay-strong" : "stroke-overlay";
+        const strokeWidth = (isSelected ? 4 : 3) * k;
         const labelNum = i + 1;
-        const labelOffset = ringRadius + 12;
+        const labelOffset = ringRadius + 14 * k;
         return (
           <g
             key={c.idx}
             style={{ cursor: "pointer" }}
             onClick={() => api.syncSelect(c.idx)}
           >
-            {/* Larger transparent hit-target circle */}
+            {/* Transparent hit target, >= 44 px on a phone-width frame */}
             <circle
               cx={c.pixel_x}
               cy={c.pixel_y}
-              r={ringRadius + 8}
+              r={80 * k}
               fill="transparent"
               stroke="none"
             />
@@ -44,25 +46,23 @@ export function SyncCandidatesOverlay({ state }: Props) {
               cy={c.pixel_y}
               r={ringRadius}
               fill="none"
-              stroke={ringStroke}
+              className={ringClass}
               strokeWidth={strokeWidth}
-              opacity={ringOpacity}
             />
             {isSelected && (
               <circle
                 cx={c.pixel_x}
                 cy={c.pixel_y}
-                r={4}
-                fill="#ef4444"
+                r={6 * k}
+                className="fill-overlay-strong"
               />
             )}
             <text
               x={c.pixel_x + labelOffset}
               y={c.pixel_y - labelOffset / 2}
-              fill="#ef4444"
-              fontSize={20}
+              className={isSelected ? "fill-overlay-strong" : "fill-overlay"}
+              fontSize={44 * k}
               fontWeight="bold"
-              opacity={isSelected ? 1 : 0.75}
               style={{ pointerEvents: "none", userSelect: "none" }}
             >
               {labelNum}

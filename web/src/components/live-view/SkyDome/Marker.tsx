@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { Html } from "@react-three/drei";
+import { Billboard, Html } from "@react-three/drei";
 import { LABEL_Z_INDEX_RANGE } from "./constants";
 
 const RADIUS = 2;
@@ -20,21 +20,33 @@ interface MarkerProps {
   color: string;
   label?: string;
   size?: number;
+  /** Hollow ring (target) instead of a solid dot (pointing). */
+  hollow?: boolean;
 }
 
-export function Marker({ altDeg, azDeg, color, label, size = 0.06 }: MarkerProps) {
+export function Marker({ altDeg, azDeg, color, label, size = 0.06, hollow = false }: MarkerProps) {
   if (altDeg < 0) return null;
   const pos = altAzTo3D(altDeg, azDeg, RADIUS);
 
   return (
     <group position={[pos.x, pos.y, pos.z]}>
-      <mesh>
-        <sphereGeometry args={[size, 16, 16]} />
-        <meshBasicMaterial color={color} />
-      </mesh>
+      {hollow ? (
+        // Always faces the camera so the ring reads as a ring from any angle.
+        <Billboard>
+          <mesh>
+            <ringGeometry args={[size * 1.4, size * 2, 32]} />
+            <meshBasicMaterial color={color} side={THREE.DoubleSide} />
+          </mesh>
+        </Billboard>
+      ) : (
+        <mesh>
+          <sphereGeometry args={[size, 16, 16]} />
+          <meshBasicMaterial color={color} />
+        </mesh>
+      )}
       {label && (
         <Html
-          position={[0, size + 0.05, 0]}
+          position={[0, size * 2 + 0.05, 0]}
           center
           pointerEvents="none"
           zIndexRange={LABEL_Z_INDEX_RANGE}
@@ -42,12 +54,13 @@ export function Marker({ altDeg, azDeg, color, label, size = 0.06 }: MarkerProps
           <div
             style={{
               color,
-              fontSize: 11,
+              fontSize: 12,
+              fontWeight: 600,
               lineHeight: 1,
               whiteSpace: "nowrap",
               pointerEvents: "none",
               transform: "translateY(-100%)",
-              textShadow: "0 0 4px rgba(0,0,0,0.8)",
+              textShadow: "0 0 4px rgb(0 0 0 / 80%)",
             }}
           >
             {label}

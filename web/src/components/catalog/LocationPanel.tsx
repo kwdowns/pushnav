@@ -1,7 +1,5 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useState } from "react";
+import { Alert, Button, Field, Input } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { EnginePayload } from "@/lib/types";
 
@@ -9,6 +7,15 @@ interface Props {
   state: EnginePayload;
 }
 
+/** Accept a typographic minus as well as a hyphen. */
+function parseCoord(s: string): number {
+  const t = s.trim().replace(/[−–]/g, "-");
+  return t === "" ? NaN : Number(t);
+}
+
+const SOURCE_LABELS = { stellarium: "From Stellarium", manual: "Set by you" } as const;
+
+/** Observer latitude / longitude, used for visibility maths. Lives in Settings. */
 export function LocationPanel({ state }: Props) {
   const activeLat = state.location?.latitude ?? null;
   const activeLon = state.location?.longitude ?? null;
@@ -18,88 +25,102 @@ export function LocationPanel({ state }: Props) {
 
   const [latInput, setLatInput] = useState(activeLatStr);
   const [lonInput, setLonInput] = useState(activeLonStr);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  // Sync inputs whenever the engine's active location changes — covers
-  // Stellarium connect/disconnect and manual save/clear.
-  useEffect(() => {
+  // Follow the engine's active location (Stellarium connect/disconnect, save,
+  // clear) without an effect: reset the inputs while rendering when it changes.
+  const [syncedTo, setSyncedTo] = useState(`${activeLatStr}|${activeLonStr}`);
+  if (syncedTo !== `${activeLatStr}|${activeLonStr}`) {
+    setSyncedTo(`${activeLatStr}|${activeLonStr}`);
     setLatInput(activeLatStr);
     setLonInput(activeLonStr);
-  }, [activeLatStr, activeLonStr]);
+  }
 
-  const lat = parseFloat(latInput);
-  const lon = parseFloat(lonInput);
-  const valid =
-    Number.isFinite(lat) &&
-    Number.isFinite(lon) &&
-    lat >= -90 &&
-    lat <= 90 &&
-    lon >= -180 &&
-    lon <= 180;
+  const lat = parseCoord(latInput);
+  const lon = parseCoord(lonInput);
+  const latOk = Number.isFinite(lat) && lat >= -90 && lat <= 90;
+  const lonOk = Number.isFinite(lon) && lon >= -180 && lon <= 180;
   const dirty = latInput !== activeLatStr || lonInput !== activeLonStr;
   const hasManual = source === "manual";
 
-  const save = async () => {
-    if (!valid) return;
-    await api.setSettings({ location: { latitude: lat, longitude: lon } });
-  };
-
-  const clear = async () => {
-    setLatInput("");
-    setLonInput("");
-    await api.setSettings({ location: null });
-  };
+  async function run(settings: Parameters<typeof api.setSettings>[0]) {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.setSettings(settings);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium text-primary">Location</Label>
-        <span className="text-xs text-muted-foreground font-mono">
-          {state.location?.source ?? "—"}
+    <div className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-heading text-foreground">Location</h3>
+        <span className="text-label text-muted-foreground">
+          {source ? SOURCE_LABELS[source] : "Not set"}
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Input
-          type="number"
-          step="0.0001"
-          placeholder="Lat"
-          value={latInput}
-          onChange={(e) => setLatInput(e.target.value)}
-          className="h-7 text-xs text-right"
-        />
-        <Input
-          type="number"
-          step="0.0001"
-          placeholder="Lon"
-          value={lonInput}
-          onChange={(e) => setLonInput(e.target.value)}
-          className="h-7 text-xs text-right"
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <Field
+          label="Latitude"
+          hint="+ north, - south"
+          error={latInput !== "" && !latOk ? "Between -90 and 90." : undefined}
+        >
+          <Input
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            placeholder="40.71"
+            value={latInput}
+            onChange={(e) => setLatInput(e.target.value)}
+          />
+        </Field>
+        <Field
+          label="Longitude"
+          hint="+ east, - west"
+          error={lonInput !== "" && !lonOk ? "Between -180 and 180." : undefined}
+        >
+          <Input
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            placeholder="-74.01"
+            value={lonInput}
+            onChange={(e) => setLonInput(e.target.value)}
+          />
+        </Field>
       </div>
+      <p className="text-label text-muted-foreground">
+        For example New York 40.71, -74.01 or Sydney -33.87, 151.21.
+      </p>
+      {saveError && (
+        <Alert variant="error" title="Couldn't save the location">
+          {saveError}
+        </Alert>
+      )}
       <div className="flex gap-2">
         <Button
-          size="sm"
-          variant="default"
-          onClick={save}
-          disabled={!dirty || !valid}
+          loading={saving}
+          disabled={!dirty || !latOk || !lonOk}
+          onClick={() => run({ location: { latitude: lat, longitude: lon } })}
         >
           Save
         </Button>
         <Button
-          size="sm"
-          variant="ghost"
-          onClick={clear}
-          disabled={!hasManual}
+          variant="secondary"
+          disabled={!hasManual || saving}
+          onClick={() => {
+            setLatInput("");
+            setLonInput("");
+            void run({ location: null });
+          }}
         >
           Clear
         </Button>
-      </div>
-      <div className="text-xs text-muted-foreground leading-snug space-y-0.5">
-        <div>Latitude: + = North, − = South</div>
-        <div>Longitude: + = East, − = West</div>
-        <div className="pt-1">
-          e.g. New York <span className="font-mono">40.71, −74.01</span> ·
-          Sydney <span className="font-mono">−33.87, 151.21</span>
-        </div>
       </div>
     </div>
   );

@@ -25,11 +25,7 @@ export function StarOverlay({ state }: Props) {
             cy={y}
             r={isMatched ? 8 : 6}
             fill="none"
-            stroke={
-              isMatched
-                ? "rgba(255, 70, 70, 0.86)"
-                : "rgba(150, 40, 40, 0.71)"
-            }
+            className={isMatched ? "stroke-overlay-strong" : "stroke-overlay-dim"}
             strokeWidth={isMatched ? 2 : 1}
           />
         );

@@ -23,7 +23,9 @@ export function AxesOverlay({ state }: Props) {
   const rightDy = Math.sin(phi);
 
   const halfDiag = Math.sqrt(state.image_w ** 2 + state.image_h ** 2) / 2;
-  const labelDist = 200;
+  // Label size tracks the frame width so it stays legible on a phone.
+  const k = state.image_w / 1280;
+  const labelDist = 200 * k;
 
   // SVG (CW) rotation needed so each label's baseline runs along the axis
   // it sits on. UP/DOWN sit on the mount-right axis at angle finder_rotation;
@@ -45,7 +47,7 @@ export function AxesOverlay({ state }: Props) {
   ];
 
   return (
-    <g stroke="rgba(180, 35, 35, 0.95)" fill="rgba(255, 70, 70, 0.86)">
+    <g className="stroke-overlay-dim fill-overlay">
       {/* Cross axis 1 (mount-up direction) — solid, darker so it's not
           confused with the marching-ants nav line. */}
       <line
@@ -67,7 +69,7 @@ export function AxesOverlay({ state }: Props) {
           transform={`rotate(${l.rot} ${l.x} ${l.y})`}
           textAnchor="middle"
           dominantBaseline="middle"
-          fontSize={24}
+          fontSize={48 * k}
           fontWeight="bold"
         >
           {l.text}

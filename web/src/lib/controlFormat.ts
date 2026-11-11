@@ -1,3 +1,5 @@
+import type { ControlDescriptor } from "@/lib/types";
+
 // Convert a raw camera-control value to a human-readable label using its
 // per-OS unit. Exposure controls report platform-specific raw units (issue
 // #26); the slider keeps operating on raw min/max/step, only the displayed
@@ -18,4 +20,19 @@ export function formatControlValue(value: number, unit?: string, displayScale = 
   if (ms >= 1000) return `${(ms / 1000).toFixed(2)} s`;
   if (ms >= 100) return `${ms.toFixed(0)} ms`;
   return `${ms.toFixed(1)} ms`;
+}
+
+/** A control's current value as reported by the engine. */
+export function controlValue(c: ControlDescriptor): number {
+  return c.cur ?? c.value ?? c.min;
+}
+
+/** formatControlValue with the control's own unit and display scale. */
+export function formatControl(c: ControlDescriptor, v: number): string {
+  return formatControlValue(v, c.unit, c.display_scale ?? 1);
+}
+
+/** "120 ms · 4.5×": the controls' current values, for a collapsed summary. */
+export function cameraControlsSummary(controls: ControlDescriptor[]): string {
+  return controls.map((c) => formatControl(c, controlValue(c))).join(" · ");
 }

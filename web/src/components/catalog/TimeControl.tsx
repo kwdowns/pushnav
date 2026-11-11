@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
+import { useState } from "react";
+import { Button, SliderField } from "@/components/ui";
+import { formatClock } from "./items";
 
 interface Props {
-  /** Applied offset in minutes (committed via Set). */
+  /** Wall-clock "now" in ms; the slider offsets from it. */
+  now: number;
+  /** Applied offset in minutes. */
   appliedOffsetMin: number;
-  /** Called with the new committed offset when the user taps Set. */
+  /** Called with the new offset when the slider is released or nudged. */
   onApply: (offsetMin: number) => void;
 }
 
-const MAX_MIN = 360;  // 6 hours (stretched when "Show then" jumps further)
+const MAX_MIN = 360; // 6 hours (stretched when "Show then" jumps further)
 
 function formatOffset(min: number): string {
   if (min === 0) return "Now";
@@ -18,60 +20,40 @@ function formatOffset(min: number): string {
   return h > 0 ? `+${h}h ${m}m` : `+${m}m`;
 }
 
-function appliedTimeLabel(offsetMin: number): string {
-  const t = new Date(Date.now() + offsetMin * 60_000);
-  const hh = t.getHours().toString().padStart(2, "0");
-  const mm = t.getMinutes().toString().padStart(2, "0");
-  return `${hh}:${mm}`;
-}
-
-export function TimeControl({ appliedOffsetMin, onApply }: Props) {
-  // Local preview slider value — not committed until "Set".
-  const [preview, setPreview] = useState(appliedOffsetMin);
-
-  useEffect(() => {
-    setPreview(appliedOffsetMin);
-  }, [appliedOffsetMin]);
-
-  const dirty = preview !== appliedOffsetMin;
+/**
+ * Observation-time slider. Dragging only previews the value; the list
+ * re-evaluates when the thumb is released (or −/+ is tapped).
+ */
+export function TimeControl({ now, appliedOffsetMin, onApply }: Props) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const shown = draft ?? appliedOffsetMin;
 
   return (
-    <div className="flex items-center gap-3 w-full">
-      <div className="flex flex-col text-xs leading-tight shrink-0 min-w-[80px]">
-        <span className="text-muted-foreground">{formatOffset(appliedOffsetMin)}</span>
-        <span className="font-mono text-foreground">
-          {appliedTimeLabel(appliedOffsetMin)}
-        </span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <Slider
-          min={0}
-          max={Math.max(MAX_MIN, appliedOffsetMin)}
-          step={5}
-          value={[preview]}
-          onValueChange={([v]) => setPreview(v)}
-        />
-      </div>
-      <span className="text-xs text-muted-foreground min-w-[60px] text-right tabular-nums shrink-0">
-        {formatOffset(preview)}
-      </span>
+    <div className="flex flex-col gap-2">
+      <SliderField
+        label="Observation time"
+        value={shown}
+        min={0}
+        max={Math.max(MAX_MIN, appliedOffsetMin)}
+        step={5}
+        formatValue={(v) => `${formatOffset(v)} · ${formatClock(new Date(now + v * 60_000))}`}
+        onValueChange={setDraft}
+        onValueCommit={(v) => {
+          onApply(v);
+          setDraft(null);
+        }}
+      />
       <Button
+        variant="secondary"
         size="sm"
-        disabled={!dirty}
-        onClick={() => onApply(preview)}
-      >
-        Set
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={appliedOffsetMin === 0 && preview === 0}
+        className="self-start"
+        disabled={shown === 0}
         onClick={() => {
-          setPreview(0);
+          setDraft(null);
           onApply(0);
         }}
       >
-        Reset
+        Reset to now
       </Button>
     </div>
   );

@@ -13,14 +13,21 @@ server on `localhost:10001`, an **LX200 Classic** ASCII server on `0.0.0.0:4030`
 SkySafari / Stellarium Mobile / INDI / ASCOM clients, and an **aiohttp HTTP + WebSocket**
 server on `0.0.0.0:8780` for the phone-scannable mobile web interface.
 
-The UI has two tabs:
-- **Navigation** — live camera frame, plate-solve overlay, sync wizard, push-to arrow.
-- **What to See** — filterable catalog of 161 deep-sky objects (vendored from
-  the Stargazing-Buddy site) with client-side visibility math. Click a row →
-  detail panel; "Set as target" promotes the object to the current GOTO target
-  and switches back to Navigation. The right column also hosts a manual
-  Location panel; observer location feeds visibility math and falls back to
-  Stellarium's reported location when a Stellarium client is connected.
+The UI is a single screen with no tabs (design rules in `web/DESIGN.md`, red
+channel only for night vision; live component reference at `?gallery`):
+- **Camera** — live frame with plate-solve overlay and push-to arrow, sticky
+  under the app bar on phones and in the left column on tablets.
+- **Step area** — the setup wizard (camera, sync, calibrate) with the
+  exposure/gain sliders right under the frame; once tracking, the target
+  readout, with camera controls and the sky dome collapsed.
+- **Targets** — below the camera: Tonight (161 curated deep-sky objects,
+  vendored from the Stargazing-Buddy site, with client-side visibility math),
+  Search (NGC + bright stars) and Manual RA/Dec. Every row has a "Go to"
+  button; tapping a row opens a detail sheet.
+- **Settings sheet** (gear in the app bar) — settings, connectivity QR and
+  the manual Location panel; observer location feeds visibility math and
+  falls back to Stellarium's reported location when a Stellarium client is
+  connected.
 
 ## Build & Run
 
@@ -131,19 +138,21 @@ web/                            # React + Vite + TS + Tailwind + shadcn/ui front
   src/
     App.tsx
     main.tsx
-    components/                 # LiveView, Wizard, Settings, DebugPanel, ...
-      catalog/                  # WhatToSee tab — Buddy/Advanced sub-tabs, table, filters, detail, time, LocationPanel
-        advanced/               # AdvancedTab: search input + results + ManualEntry RA/Dec panel
-        buddy/                  # BuddyTab (curated 161 catalog)
+    components/                 # LiveView, StepArea, Targets, Settings, DebugPanel, ...
+      app/                      # TopBar, SettingsSheet
+      step/                     # StepArea (wizard cards, TrackingPanel)
+      catalog/                  # Targets section — Tonight/Search/Manual panels, TargetList, TargetDetail sheet, filters, time, LocationPanel
+      ui/                       # component library (see web/DESIGN.md)
       live-view/                # LiveView, NavOverlay, AxesOverlay, StarOverlay, ...
         SkyDome/                # always-visible 3D dome (R3F) — pointing/target markers, telescope cylinder
-    hooks/                      # useEngineState (WebSocket subscription), useView
-    lib/                        # api client, types, astronomy (altAz/rise/set), catalogTypes, advancedSearch
+    hooks/                      # useEngineState (WebSocket subscription), useFullscreen (Fullscreen API)
+    lib/                        # api client, types, astronomy (altAz/rise/set), catalogTypes, advancedSearch, pwa (isStandalone)
     data/
       objects.json              # vendored buddy catalog (161 curated entries)
       openngc.json              # OpenNGC trimmed to ~12.5k NGC objects (CC-BY-SA 4.0)
       hyg-bright.json           # HYG v3 trimmed to ~8.8k bright stars (CC-BY-SA 4.0)
-  public/                       # logo, inapp-title, favicons
+  public/                       # logo, inapp-title, favicons, PWA manifest.webmanifest + icons (red on #0a0000;
+                                #   regenerate with scripts/make_pwa_icons.py). No service worker: plain HTTP on the LAN
   dist/                         # build output (gitignored)
 camera/
   mac/                          # Swift camera server (macOS)
@@ -190,6 +199,7 @@ scripts/                        # build and dev scripts
   run_mock_camera.sh            # launch mock camera for testing
   pushnav.iss                   # Inno Setup installer script (Windows)
   sync_catalog.py               # vendor objects.json from ~/Devel/Github/stargazing-buddy-site
+  make_pwa_icons.py             # regenerate web/public PWA/apple-touch icons from marketing/logo.png (red on #0a0000)
   make_pi_label.py              # 50 x 20 mm SVG + PNG label for a ready-made Pi (QR + hotspot details)
   fonts/                        # Atkinson Hyperlegible (OFL), used only by make_pi_label.py
   render_3d_models.py           # render docs/assets/3d_model_*.png from the STLs (uv run, PyVista)

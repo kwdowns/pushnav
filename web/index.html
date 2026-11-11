@@ -3,16 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0a0000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PushNav" />
     <meta name="color-scheme" content="dark" />
     <!-- The UI is always dark. Apply .dark and paint the dark background on the
          very first frame — before the CSS bundle loads and before main.tsx adds
          .dark at runtime — so the webview doesn't flash white on startup.
-         Color = the .dark --background in src/index.css. -->
+         Color = #0a0000, the same as the PWA manifest background_color
+         and theme-color. -->
     <style>
-      html { background: oklch(0.1 0.06 22); }
+      html { background: #0a0000; }
     </style>
-    <title>web</title>
+    <title>PushNav</title>
   </head>
   <body>
     <div id="root"></div>

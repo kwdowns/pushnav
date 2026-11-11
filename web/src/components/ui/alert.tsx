@@ -1,76 +1,69 @@
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
+import { InfoIcon, OctagonAlertIcon, TriangleAlertIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-const alertVariants = cva(
-  "group/alert relative grid w-full gap-0.5 rounded-lg border px-2.5 py-2 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4",
-  {
-    variants: {
-      variant: {
-        default: "bg-card text-card-foreground",
-        destructive:
-          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  }
-)
+type AlertVariant = "info" | "warning" | "error"
+const STYLES: Record<AlertVariant, string> = {
+  info: "border-border bg-card",
+  warning: "border-input bg-card",
+  error: "border-primary bg-accent",
+}
 
+const ICONS: Record<AlertVariant, typeof InfoIcon> = {
+  info: InfoIcon,
+  warning: TriangleAlertIcon,
+  error: OctagonAlertIcon,
+}
+
+/**
+ * Inline message. Each variant carries its own icon (state is shape, not
+ * hue); `error` also gets the bright border and a raised fill.
+ */
 function Alert({
   className,
   variant,
+  title,
+  action,
+  children,
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
+}: Omit<React.ComponentProps<"div">, "title"> & {
+  variant?: AlertVariant | null
+  title?: React.ReactNode
+  /** Trailing control, e.g. a "Retry" button. */
+  action?: React.ReactNode
+}) {
+  const v: AlertVariant = variant ?? "info"
+  const Icon = ICONS[v]
   return (
     <div
       data-slot="alert"
-      role="alert"
-      className={cn(alertVariants({ variant }), className)}
-      {...props}
-    />
-  )
-}
-
-function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="alert-title"
+      data-variant={v}
+      role={v === "info" ? "status" : "alert"}
       className={cn(
-        "font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
+        "flex w-full items-start gap-3 rounded-lg border-[1.5px] p-3 text-left text-foreground",
+        STYLES[v],
         className
       )}
       {...props}
-    />
-  )
-}
-
-function AlertDescription({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="alert-description"
-      className={cn(
-        "text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
-        className
+    >
+      <Icon className="mt-0.5 size-5 shrink-0" aria-hidden />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        {title != null && <div data-slot="alert-title" className="text-heading">{title}</div>}
+        {typeof children === "string" ? (
+          <div data-slot="alert-description" className="text-label text-foreground">{children}</div>
+        ) : (
+          children
+        )}
+      </div>
+      {action != null && (
+        <div data-slot="alert-action" className="shrink-0 self-center">
+          {action}
+        </div>
       )}
-      {...props}
-    />
+    </div>
   )
 }
 
-function AlertAction({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="alert-action"
-      className={cn("absolute top-2 right-2", className)}
-      {...props}
-    />
-  )
-}
-
-export { Alert, AlertTitle, AlertDescription, AlertAction }
+export { Alert }
+export type { AlertVariant }

@@ -56,7 +56,7 @@ export function SkyDome({
   return (
     <div
       className={
-        "relative w-full h-full min-h-[200px] rounded-md overflow-hidden border border-border/40 "
+        "relative w-full h-full min-h-[200px] rounded-lg overflow-hidden border border-border "
         + (className ?? "")
       }
     >
@@ -79,7 +79,7 @@ export function SkyDome({
 
       {!hasLocation && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="text-[11px] text-muted-foreground bg-background/70 px-2 py-1 rounded">
+          <div className="text-label text-muted-foreground bg-background px-2 py-1 rounded-md">
             Location info required
           </div>
         </div>
@@ -87,7 +87,7 @@ export function SkyDome({
 
       {hasLocation && targetBelowHorizon && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 pointer-events-none">
-          <div className="text-[11px] text-muted-foreground bg-background/70 px-2 py-1 rounded">
+          <div className="text-label text-muted-foreground bg-background px-2 py-1 rounded-md">
             Target below horizon
           </div>
         </div>

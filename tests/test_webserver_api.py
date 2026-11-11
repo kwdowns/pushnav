@@ -226,3 +226,34 @@ async def test_settings_cpu_cap(server_and_actions):
                           json={"cpu_cap": False}) as resp:
             assert resp.status == 204
     actions.set_cpu_cap.assert_called_once_with(False)
+
+
+@pytest.mark.asyncio
+async def test_pwa_manifest_and_icons_served(server_and_actions, tmp_path, monkeypatch):
+    """The manifest is served as application/manifest+json and the page + icons resolve."""
+    ws, _ = server_and_actions
+    ws.stop()  # restart with a fake build dir (web_dist_dir is read at start)
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html><title>PushNav</title>")
+    (dist / "manifest.webmanifest").write_text('{"name": "PushNav"}')
+    (dist / "icon-192.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    monkeypatch.setattr("evf.webserver.server.web_dist_dir", lambda: dist)
+    ws._port = None
+    ws.start()
+    for _ in range(40):
+        if ws._port is not None:
+            break
+        threading.Event().wait(0.05)
+    base = f"http://127.0.0.1:{ws._port}"
+    async with ClientSession() as s:
+        async with s.get(f"{base}/static/manifest.webmanifest") as r:
+            assert r.status == 200
+            assert r.headers["Content-Type"].startswith("application/manifest+json")
+            assert (await r.json(content_type=None))["name"] == "PushNav"
+        async with s.get(f"{base}/static/icon-192.png") as r:
+            assert r.status == 200
+            assert r.headers["Content-Type"] == "image/png"
+        async with s.get(f"{base}/") as r:
+            assert r.status == 200
+            assert "no-cache" in r.headers["Cache-Control"]

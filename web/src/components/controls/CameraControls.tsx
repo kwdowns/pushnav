@@ -1,56 +1,52 @@
-import { useState, useEffect } from "react";
-import { Slider } from "@/components/ui/slider";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { SliderField } from "@/components/ui";
 import { api } from "@/lib/api";
-import { formatControlValue } from "@/lib/controlFormat";
+import { controlValue, formatControl } from "@/lib/controlFormat";
 import type { ControlDescriptor } from "@/lib/types";
 
-interface Props {
-  controls: ControlDescriptor[];
+function controlId(c: ControlDescriptor): string {
+  return c.id ?? c.name ?? c.label;
 }
 
-export function CameraControls({ controls }: Props) {
+/** Exposure / gain sliders. No card: the caller decides the container. */
+export function CameraControls({ controls }: { controls: ControlDescriptor[] }) {
+  if (controls.length === 0) {
+    return (
+      <p className="text-label text-muted-foreground">
+        No camera controls available.
+      </p>
+    );
+  }
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Camera</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {controls.map((c) => (
-          <ControlRow key={c.id ?? c.name} control={c} />
-        ))}
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-3">
+      {controls.map((c) => (
+        <ControlSlider key={controlId(c)} control={c} />
+      ))}
+    </div>
   );
 }
 
-function ControlRow({ control }: { control: ControlDescriptor }) {
-  const id = control.id ?? control.name ?? "";
-  const serverValue = control.cur ?? control.value ?? control.min;
-  const [local, setLocal] = useState(serverValue);
-
-  // Reflect server-side updates
-  useEffect(() => { setLocal(serverValue); }, [serverValue]);
-
-  const commit = (v: number) => {
-    setLocal(v);
-    api.setControl(id, v).catch((e) => console.error(e));
-  };
+function ControlSlider({ control }: { control: ControlDescriptor }) {
+  const server = controlValue(control);
+  // The value being dragged, plus the server value it was started from. Once
+  // the server reports something else (our commit landed, or another client
+  // moved it), the server wins — no effect needed to resync.
+  const [local, setLocal] = useState<{ value: number; from: number } | null>(null);
+  const value = local !== null && local.from === server ? local.value : server;
 
   return (
-    <div>
-      <div className="flex justify-between text-sm mb-1">
-        <span>{control.label}</span>
-        <span className="text-muted-foreground">{formatControlValue(local, control.unit, control.display_scale ?? 1)}</span>
-      </div>
-      <Slider
-        min={control.min}
-        max={control.max}
-        step={control.step ?? 1}
-        value={[local]}
-        onValueChange={([v]) => setLocal(v)}
-        onValueCommit={([v]) => commit(v)}
-      />
-    </div>
+    <SliderField
+      label={control.label}
+      value={value}
+      min={control.min}
+      max={control.max}
+      step={control.step || 1}
+      formatValue={(v) => formatControl(control, v)}
+      onValueChange={(v) => setLocal({ value: v, from: server })}
+      onValueCommit={(v) => {
+        setLocal({ value: v, from: server });
+        api.setControl(controlId(control), v).catch(console.error);
+      }}
+    />
   );
 }

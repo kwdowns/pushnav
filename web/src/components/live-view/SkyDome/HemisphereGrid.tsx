@@ -56,12 +56,13 @@ function createAzimuthLine(azDeg: number, radius: number): THREE.Vector3[] {
 }
 
 const LABEL_STYLE: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 12,
+  fontWeight: 600,
   lineHeight: 1,
   whiteSpace: "nowrap",
   pointerEvents: "none",
   userSelect: "none",
-  textShadow: "0 0 4px rgba(0,0,0,0.8)",
+  textShadow: "0 0 4px rgb(0 0 0 / 80%)",
 };
 
 export function HemisphereGrid({ colors }: { colors: ThemeColors }) {

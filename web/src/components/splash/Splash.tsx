@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { RefreshCcw } from "lucide-react";
 import {
+  Alert,
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+  Spinner,
+} from "@/components/ui";
 import { api } from "@/lib/api";
 import type { EnginePayload } from "@/lib/types";
 
@@ -28,7 +31,10 @@ export function Splash({ state }: Props) {
       <Dialog open>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Connecting…</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Spinner label="Connecting" />
+              Connecting…
+            </DialogTitle>
             <DialogDescription>Waiting for engine.</DialogDescription>
           </DialogHeader>
         </DialogContent>
@@ -59,18 +65,17 @@ export function Splash({ state }: Props) {
           <DialogHeader>
             <DialogTitle>Camera not found</DialogTitle>
             <DialogDescription>
-              Plug in the USB camera and click <em>Retry detection</em>. If
-              that doesn't work, fully quit PushNav (Cmd-Q / Alt-F4) and
-              relaunch — the camera is probed once at startup. You can
-              also close this dialog to use the catalog and connected
-              clients without plate-solving.
+              Plug in the USB camera and press Retry detection. If that
+              doesn't work, quit PushNav completely and start it again; the
+              camera is looked for once at startup. You can also close this
+              to browse targets and use connected apps without
+              plate-solving.
             </DialogDescription>
-            {retryError && (
-              <p className="text-destructive text-sm">{retryError}</p>
-            )}
           </DialogHeader>
+          {retryError && <Alert variant="error">{retryError}</Alert>}
           <DialogFooter>
-            <Button onClick={onRetry} disabled={retrying}>
+            <Button size="lg" onClick={onRetry} loading={retrying}>
+              {!retrying && <RefreshCcw aria-hidden />}
               {retrying ? "Detecting…" : "Retry detection"}
             </Button>
           </DialogFooter>

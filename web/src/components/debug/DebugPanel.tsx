@@ -1,100 +1,72 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { Camera, Crosshair } from "lucide-react";
+import { Button, Chip } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { EnginePayload } from "@/lib/types";
 
 const SAMPLES = ["a", "b", "c", "d", "orion"];
 
-interface Props {
-  state: EnginePayload;
-}
+// The sample the user just tapped, plus the server's value at that moment.
+// The WS payload lags ~100 ms behind a tap, so until the server reports
+// something new we show the tap; after that the server is the truth.
+type Pending = { value: string | null; serverAtTap: string | null } | null;
 
-// Optimistic-local marker for the sample the user just clicked, so rapid
-// re-clicks don't read stale `state.sample_active` from the WS payload
-// (which lags ~100ms behind a click). `undefined` = follow server state.
-type Pending = string | null | undefined;
+export function DebugPanel({ state }: { state: EnginePayload }) {
+  const [captureMsg, setCaptureMsg] = useState("");
+  const [pending, setPending] = useState<Pending>(null);
 
-export function DebugPanel({ state }: Props) {
-  const [captureMsg, setCaptureMsg] = useState<string>("");
-  const [pending, setPending] = useState<Pending>(undefined);
-
-  // The truth source for what's active: optimistic if set, otherwise server.
   const activeSample =
-    pending !== undefined ? pending : state.sample_active;
-
-  // Once the server agrees with our optimistic value, drop it.
-  useEffect(() => {
-    if (pending !== undefined && state.sample_active === pending) {
-      setPending(undefined);
-    }
-  }, [state.sample_active, pending]);
+    pending !== null && pending.serverAtTap === state.sample_active
+      ? pending.value
+      : state.sample_active;
 
   async function onCapture() {
     try {
       const r = await api.dev.captureFrame();
-      setCaptureMsg(r.path ? `Saved: ${r.path}` : (r.error || "Failed"));
+      setCaptureMsg(r.path ? `Saved: ${r.path}` : r.error || "Failed");
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setCaptureMsg(`Error: ${msg}`);
+      setCaptureMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
   function toggleSample(name: string) {
     const next = activeSample === name ? null : name;
-    setPending(next);
+    setPending({ value: next, serverAtTap: state.sample_active });
     api.dev.injectSample(next).catch((e) => {
       console.error(e);
-      setPending(undefined); // server didn't accept — fall back to its truth
+      setPending(null); // server didn't accept: fall back to its value
     });
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base text-primary">Debug</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-1.5 text-sm">
-        <div>
-          <Button variant="outline" size="sm" onClick={onCapture} className="w-full">
-            Capture Frame
-          </Button>
-          {captureMsg && (
-            <div className="mt-1 text-xs text-muted-foreground break-all">
-              {captureMsg}
-            </div>
-          )}
-        </div>
+    <section className="flex flex-col gap-3" aria-label="Debug">
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" size="sm" onClick={onCapture}>
+          <Camera aria-hidden />
+          Capture frame
+        </Button>
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
           onClick={() => api.dev.injectTarget(79.1723, 45.998).catch(console.error)}
-          className="w-full"
         >
+          <Crosshair aria-hidden />
           Inject Capella
         </Button>
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">
-            Inject sample image as video input:
-          </div>
-          <div className="space-y-1">
-            {SAMPLES.map((n) => {
-              const active = activeSample === n;
-              return (
-                <Button
-                  key={n}
-                  variant={active ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => toggleSample(n)}
-                  className="w-full justify-start"
-                >
-                  {active ? "● " : "  "}Sample {n}.png
-                </Button>
-              );
-            })}
-          </div>
+      </div>
+      {captureMsg && (
+        <p className="readout text-label break-all text-muted-foreground">{captureMsg}</p>
+      )}
+      <div className="flex flex-col gap-2">
+        <span className="text-label text-foreground">Sample image as camera input</span>
+        <div className="flex flex-wrap gap-2">
+          {SAMPLES.map((n) => (
+            <Chip key={n} pressed={activeSample === n} onPressedChange={() => toggleSample(n)}>
+              {n}.png
+            </Chip>
+          ))}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

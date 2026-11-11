@@ -100,7 +100,8 @@ export function SkyDomeCanvas({ pointing, target, colors }: Props) {
           altDeg={pointing.altDeg}
           azDeg={pointing.azDeg}
           color={colors.pointing}
-          size={0.03}
+          label="Scope"
+          size={0.05}
         />
       )}
       {target && (
@@ -108,8 +109,9 @@ export function SkyDomeCanvas({ pointing, target, colors }: Props) {
           altDeg={target.altDeg}
           azDeg={target.azDeg}
           color={colors.target}
-          label={target.label}
+          label={target.label || "Target"}
           size={0.04}
+          hollow
         />
       )}
     </>

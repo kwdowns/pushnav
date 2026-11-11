@@ -1,25 +1,99 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* ==========================================================================
+   PushNav design tokens — "Night Red"
+   Human-readable guide: web/DESIGN.md. Live reference: open the app with
+   ?gallery appended to the URL.
+
+   The one hard rule: every colour is on the red channel only (rgb(N 0 0)),
+   so the screen emits nothing a dark-adapted eye is sensitive to. There is
+   no second hue; state is carried by fill, border, weight and icons.
+   ========================================================================== */
+
+/* The app is always dark. `.dark` stays on <html> for any third-party
+   markup that keys off it, but nothing in this codebase needs `dark:`. */
 @custom-variant dark (&:is(.dark *));
 
-/* Radix data-orientation / data-state variants used by shadcn primitives.
-   Tailwind v4 doesn't ship these out of the box, and the shadcn CLI
-   doesn't register them — so utilities like `data-horizontal:h-1` on
-   <Slider>/<ScrollArea>/<Separator>/<Tabs> would otherwise resolve to
-   nothing and the components render with zero-height tracks. */
+/* Radix state variants (Tailwind v4 doesn't ship these). */
 @custom-variant data-horizontal (&[data-orientation="horizontal"]);
 @custom-variant data-vertical   (&[data-orientation="vertical"]);
 @custom-variant data-disabled   (&[data-disabled]);
 @custom-variant data-active     (&[data-state="active"]);
 @custom-variant data-checked    (&[data-state="checked"]);
 @custom-variant data-unchecked  (&[data-state="unchecked"]);
+@custom-variant data-open       (&[data-state="open"]);
+@custom-variant data-closed     (&[data-state="closed"]);
+@custom-variant data-on         (&[data-state="on"]);
+
+:root {
+  color-scheme: dark;
+
+  /* ---- 1. Primitive ramp: red channel only ------------------------------
+     Contrast of #ff0000 text on each surface (WCAG): 950 5.2 · 900 5.1 ·
+     850 5.0 · 800 4.7 · 750 4.5. A red-only palette tops out at 5.25:1,
+     so body text always uses the top of the ramp. */
+  --red-950: #0a0000; /* page */
+  --red-900: #140000; /* surface (cards, bars) */
+  --red-850: #1f0000; /* raised surface, resting control fill */
+  --red-800: #2e0000; /* pressed / selected fill */
+  --red-750: #380000; /* primary action fill — darkest fill that keeps 4.5:1 */
+  --red-700: #4d0000; /* hairlines, dividers */
+  --red-600: #8a0000; /* control outlines, inactive tracks */
+  --red-500: #a80000; /* placeholder + disabled text (2.6:1 — never for info) */
+  --red-400: #cc0000; /* secondary text (3.5:1 — 14 px medium and up) */
+  --red-300: #ff0000; /* text, icons, emphasis (5.2:1) */
+
+  /* ---- 2. Semantic colour (shadcn-compatible names) ---------------------- */
+  --background:             var(--red-950);
+  --foreground:             var(--red-300);
+  --card:                   var(--red-900);
+  --card-foreground:        var(--red-300);
+  --popover:                var(--red-850);
+  --popover-foreground:     var(--red-300);
+  --muted:                  var(--red-850);
+  --muted-foreground:       var(--red-400);
+  --subtle-foreground:      var(--red-500);
+  --secondary:              var(--red-850);
+  --secondary-foreground:   var(--red-300);
+  --accent:                 var(--red-800);
+  --accent-foreground:      var(--red-300);
+  /* `primary` is the emphasis colour (bright). Use it for text, borders,
+     slider ranges and "on" states — NOT as a large fill. Large fills use
+     `action` so light output scales with information, not with area. */
+  --primary:                var(--red-300);
+  --primary-foreground:     var(--red-950);
+  --action:                 var(--red-750);
+  --action-pressed:         var(--red-700);
+  --action-foreground:      var(--red-300);
+  /* Same hue by necessity: destructive actions are marked by an icon and a
+     confirmation step, never by colour. */
+  --destructive:            var(--red-300);
+  --destructive-foreground: var(--red-950);
+  --border:                 var(--red-700);
+  --input:                  var(--red-600);
+  --ring:                   var(--red-300);
+  --scrim:                  rgb(0 0 0 / 70%);
+
+  /* Drawing colours for SVG / WebGL overlays on the camera frame and dome. */
+  --overlay-strong:         var(--red-300);
+  --overlay:                var(--red-400);
+  --overlay-dim:            var(--red-600);
+  --overlay-label-bg:       rgb(10 0 0 / 60%);
+
+  /* ---- 3. Shape, size, layout -------------------------------------------- */
+  --radius: 0.75rem;
+  /* Safe-area insets (notch, home indicator) for the installed PWA. */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
+  /* Height of the sticky app bar; sticky children offset by this. */
+  --app-bar-h: 3.5rem;
+}
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* Colour utilities: bg-*, text-*, border-*, fill-*, stroke-* … */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -28,10 +102,14 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-action: var(--action);
+  --color-action-pressed: var(--action-pressed);
+  --color-action-foreground: var(--action-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
@@ -39,130 +117,155 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --color-scrim: var(--scrim);
+  --color-overlay-strong: var(--overlay-strong);
+  --color-overlay: var(--overlay);
+  --color-overlay-dim: var(--overlay-dim);
+
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Type roles: text-display / text-title / text-heading / text-body /
+     text-label / text-caption. Use these, not text-xs…text-2xl. Red-on-black
+     lights one sub-pixel in three, so small text is never lighter than 500. */
+  --text-display: 1.75rem;
+  --text-display--line-height: 2rem;
+  --text-display--font-weight: 600;
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.75rem;
+  --text-title--font-weight: 600;
+  --text-heading: 1.0625rem;
+  --text-heading--line-height: 1.5rem;
+  --text-heading--font-weight: 600;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5rem;
+  --text-label: 0.875rem;
+  --text-label--line-height: 1.25rem;
+  --text-label--font-weight: 500;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-caption--font-weight: 600;
+  --text-caption--letter-spacing: 0.06em;
+
+  /* Touch sizes: h-touch, min-h-touch-sm, size-touch-lg …
+     Nothing tappable is ever smaller than touch-sm (44 px). */
+  --spacing-touch-sm: 2.75rem; /* 44 px — minimum, dense rows only */
+  --spacing-touch: 3rem;       /* 48 px — default control height */
+  --spacing-touch-lg: 3.5rem;  /* 56 px — the one primary action on a screen */
+  --spacing-app-bar: var(--app-bar-h);
+
+  --container-app: 75rem; /* max content width */
 }
 
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+/* Layering scale as utilities (z-sticky, z-bar, z-overlay). */
+@utility z-sticky  { z-index: 20; }
+@utility z-bar     { z-index: 30; }
+@utility z-overlay { z-index: 50; }
+
+/* Safe-area padding for edges that touch the screen border. */
+@utility pt-safe { padding-top: var(--safe-top); }
+@utility pb-safe { padding-bottom: var(--safe-bottom); }
+@utility px-safe {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+/* Page gutter that also clears a side notch in landscape. */
+@utility px-gutter {
+  padding-left: max(0.75rem, var(--safe-left));
+  padding-right: max(0.75rem, var(--safe-right));
+  @media (width >= 48rem) {
+    padding-left: max(1rem, var(--safe-left));
+    padding-right: max(1rem, var(--safe-right));
+  }
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+/* Extends a small visual (checkbox, close icon) to a 44 px touch target
+   without changing its layout box. The element must be position: relative. */
+@utility hit-slop {
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* Numbers that change in place (RA/Dec, distance) must not jitter. */
+@utility readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Camera frames arrive greyscale (white light). Put `night-frame` on the
+   wrapper: the <img> inside is multiplied onto pure red, keeping only its
+   red channel. */
+@utility night-frame {
+  background-color: #ff0000;
+  isolation: isolate;
+  & > img,
+  & > video,
+  & > canvas {
+    mix-blend-mode: multiply;
+  }
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html {
+    background: var(--background);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground text-body;
+    /* The page is the only vertical scroller (see DESIGN.md → Scrolling).
+       Stop pull-to-refresh / rubber-banding in the installed PWA. */
+    overscroll-behavior-y: none;
+    -webkit-font-smoothing: antialiased;
   }
-  /* App is dark-only; tell WebKit so native UI (scrollbars, form controls,
-     date pickers) renders in dark mode instead of falling back to bright
-     Aqua light-mode rendering on macOS WKWebView. */
-  :root {
-    color-scheme: dark;
+  /* No 300 ms tap delay, no double-tap zoom on controls. */
+  a, button, input, select, textarea, label, summary, [role="button"],
+  [role="tab"], [role="switch"], [role="checkbox"], [role="slider"] {
+    touch-action: manipulation;
   }
-}
-
-/* PushNav astronomy palette: shadcn dark theme tinted toward red.
-   Hue 25 (true red, not pink); same lightness values as stock so contrast
-   ratios stay shadcn-correct; chroma scaled to lightness so dark surfaces
-   stay subtle and bright text reads clearly red.
-   MUST live AFTER the stock .dark block — same specificity, last wins. */
-.dark {
-  --background:             oklch(0.10  0.06 22);
-  --foreground:             oklch(0.50  0.22 22);
-  --card:                   oklch(0.16  0.10 22);
-  --card-foreground:        oklch(0.50  0.22 22);
-  --popover:                oklch(0.16  0.10 22);
-  --popover-foreground:     oklch(0.50  0.22 22);
-  --primary:                oklch(0.45  0.18 22);
-  --primary-foreground:     oklch(0.96  0.04 22);
-  --secondary:              oklch(0.24  0.14 22);
-  --secondary-foreground:   oklch(0.50  0.22 22);
-  --muted:                  oklch(0.22  0.12 22);
-  --muted-foreground:       oklch(0.42  0.20 22);
-  --accent:                 oklch(0.32  0.18 22);
-  --accent-foreground:      oklch(0.50  0.22 22);
-  --destructive:            oklch(0.55  0.24 22);
-  --destructive-foreground: oklch(0.96  0.04 22);
-  --border:                 oklch(0.45  0.20 22 / 35%);
-  --input:                  oklch(0.35  0.18 22 / 25%);
-  --ring:                   oklch(0.55  0.24 22);
+  button, [role="button"], [role="tab"], summary {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* One focus treatment everywhere: a bright 2 px ring, offset so it reads
+     against both dark fills and bright borders. Keyboard only. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--red-700);
+    color: var(--red-300);
+  }
+  ::placeholder {
+    color: var(--subtle-foreground);
+    opacity: 1;
+  }
+  /* Native widgets that would otherwise paint in the OS accent colour. */
+  input, select, textarea, progress {
+    accent-color: var(--red-300);
+    caret-color: var(--red-300);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 /* PushNav animations */
@@ -173,13 +276,11 @@
   animation: pushnav-ants 0.6s linear infinite;
 }
 
-/* Themed thin scrollbar for catalog scroll regions. Track is transparent
-   so the Card gradient shows through; thumb picks up the muted red border
-   token, brightening on hover. Firefox uses scrollbar-* shorthands; Chromium
-   / WebKit uses ::-webkit-scrollbar pseudo-elements. */
+/* Thin themed scrollbar for the few regions allowed to scroll on their own
+   (sheets, wide tables). */
 .pushnav-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: oklch(0.40 0.15 22 / 50%) transparent;
+  scrollbar-color: var(--red-700) transparent;
 }
 .pushnav-scrollbar::-webkit-scrollbar {
   width: 8px;
@@ -189,24 +290,9 @@
   background: transparent;
 }
 .pushnav-scrollbar::-webkit-scrollbar-thumb {
-  background-color: oklch(0.40 0.15 22 / 50%);
+  background-color: var(--red-700);
   border-radius: 4px;
 }
 .pushnav-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: oklch(0.55 0.20 22 / 75%);
-}
-
-/* Subtle red-tinted vertical gradient on every shadcn Card.
-   Top: slightly lighter and faintly red-tinted; bottom: a touch darker.
-   Chroma kept low (≤ 0.03) so contrast against the foreground tokens
-   stays well above WCAG AA. */
-.dark [data-slot="card"] {
-  /* Lightness ranges 85%–105% of stock --card (0.205); chroma stays
-     at a pure red 0.10 across the whole gradient so colour doesn't
-     desaturate toward gray at the dark end. */
-  background-image: linear-gradient(
-    180deg,
-    oklch(0.215 0.10 22) 0%,
-    oklch(0.174 0.10 22) 100%
-  );
+  background-color: var(--red-600);
 }

@@ -1,164 +1,69 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { Equipment, LpTolerance, VisualReward } from "@/lib/catalogTypes";
-
-const EQUIPMENT: { value: Equipment; label: string }[] = [
-  { value: "naked-eye", label: "Naked eye" },
-  { value: "binoculars", label: "Binoculars" },
-  { value: "small-telescope", label: "Small scope" },
-  { value: "medium-telescope", label: "Medium scope" },
-  { value: "large-telescope", label: "Large scope" },
-];
-
-const LP: { value: LpTolerance; label: string }[] = [
-  { value: "high", label: "High" },
-  { value: "medium", label: "Medium" },
-  { value: "low", label: "Low" },
-];
-
-const REWARD: { value: VisualReward; label: string }[] = [
-  { value: "high", label: "High" },
-  { value: "moderate", label: "Moderate" },
-  { value: "low", label: "Low" },
-];
-
-export interface CatalogFilterState {
-  equipment: Set<Equipment>;
-  lp: Set<LpTolerance>;
-  reward: Set<VisualReward>;
-}
+import { Chip } from "@/components/ui";
+import {
+  EQUIPMENT,
+  LP,
+  REWARD,
+  type CatalogFilterState,
+} from "./filterState";
 
 interface Props {
   value: CatalogFilterState;
   onChange: (next: CatalogFilterState) => void;
 }
 
-export function SelectedFiltersLine({ value }: { value: CatalogFilterState }) {
-  const segs: { label: string; values: string }[] = [];
-  if (value.equipment.size < EQUIPMENT.length) {
-    segs.push({
-      label: "Equipment",
-      values: EQUIPMENT.filter((e) => value.equipment.has(e.value))
-        .map((e) => e.label)
-        .join(", "),
-    });
-  }
-  if (value.lp.size < LP.length) {
-    segs.push({
-      label: "LP",
-      values: LP.filter((l) => value.lp.has(l.value))
-        .map((l) => l.label)
-        .join(", "),
-    });
-  }
-  if (value.reward.size < REWARD.length) {
-    segs.push({
-      label: "Reward",
-      values: REWARD.filter((r) => value.reward.has(r.value))
-        .map((r) => r.label)
-        .join(", "),
-    });
-  }
-  if (segs.length === 0) return null;
-  return (
-    <div className="text-xs text-muted-foreground">
-      {segs.map((s, i) => (
-        <span key={s.label}>
-          {i > 0 && "  ·  "}
-          <span className="font-semibold text-foreground">{s.label}:</span>{" "}
-          {s.values}
-        </span>
-      ))}
-    </div>
-  );
-}
-
+/** Three groups of toggle chips: equipment, light-pollution tolerance, reward. */
 export function CatalogFilters({ value, onChange }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <FilterDropdown
+    <div className="flex flex-col gap-4">
+      <ChipGroup
         label="Equipment"
         options={EQUIPMENT}
-        selected={value.equipment as Set<string>}
-        onChange={(next) => onChange({ ...value, equipment: next as Set<Equipment> })}
+        selected={value.equipment}
+        onChange={(equipment) => onChange({ ...value, equipment })}
       />
-      <FilterDropdown
-        label="LP tolerance"
+      <ChipGroup
+        label="Light pollution tolerance"
         options={LP}
-        selected={value.lp as Set<string>}
-        onChange={(next) => onChange({ ...value, lp: next as Set<LpTolerance> })}
+        selected={value.lp}
+        onChange={(lp) => onChange({ ...value, lp })}
       />
-      <FilterDropdown
+      <ChipGroup
         label="Visual reward"
         options={REWARD}
-        selected={value.reward as Set<string>}
-        onChange={(next) => onChange({ ...value, reward: next as Set<VisualReward> })}
+        selected={value.reward}
+        onChange={(reward) => onChange({ ...value, reward })}
       />
     </div>
   );
 }
 
-function FilterDropdown<T extends string>({
+function ChipGroup<T extends string>({
   label, options, selected, onChange,
 }: {
   label: string;
   options: { value: T; label: string }[];
-  selected: Set<string>;
-  onChange: (next: Set<string>) => void;
+  selected: Set<T>;
+  onChange: (next: Set<T>) => void;
 }) {
-  const total = options.length;
-  const count = selected.size;
-  const summary = count === total ? "All" : `${count} of ${total}`;
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          {label}: {summary}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-56 p-2 space-y-1">
+    <div role="group" aria-label={label} className="flex flex-col gap-2">
+      <span className="text-label text-muted-foreground">{label}</span>
+      <div className="flex flex-wrap gap-2">
         {options.map((o) => (
-          <label key={o.value} className="flex items-center gap-2 cursor-pointer text-sm py-1">
-            <Checkbox
-              checked={selected.has(o.value)}
-              onCheckedChange={(checked) => {
-                const next = new Set(selected);
-                if (checked) next.add(o.value);
-                else next.delete(o.value);
-                onChange(next);
-              }}
-            />
+          <Chip
+            key={o.value}
+            pressed={selected.has(o.value)}
+            onPressedChange={(on) => {
+              const next = new Set(selected);
+              if (on) next.add(o.value);
+              else next.delete(o.value);
+              onChange(next);
+            }}
+          >
             {o.label}
-          </label>
+          </Chip>
         ))}
-      </PopoverContent>
-    </Popover>
+      </div>
+    </div>
   );
-}
-
-export function useCatalogFilters(): [
-  CatalogFilterState,
-  (next: CatalogFilterState) => void,
-] {
-  const [state, setStateRaw] = useState<CatalogFilterState>(() => {
-    const eq = JSON.parse(localStorage.getItem("pushnav.catalog.equipment") || "null");
-    const lp = JSON.parse(localStorage.getItem("pushnav.catalog.lp") || "null");
-    const rw = JSON.parse(localStorage.getItem("pushnav.catalog.reward") || "null");
-    return {
-      equipment: new Set(eq ?? EQUIPMENT.map((e) => e.value)) as Set<Equipment>,
-      lp: new Set(lp ?? LP.map((l) => l.value)) as Set<LpTolerance>,
-      reward: new Set(rw ?? REWARD.map((r) => r.value)) as Set<VisualReward>,
-    };
-  });
-  useEffect(() => {
-    localStorage.setItem(
-      "pushnav.catalog.equipment",
-      JSON.stringify([...state.equipment]),
-    );
-    localStorage.setItem("pushnav.catalog.lp", JSON.stringify([...state.lp]));
-    localStorage.setItem("pushnav.catalog.reward", JSON.stringify([...state.reward]));
-  }, [state]);
-  return [state, setStateRaw];
 }

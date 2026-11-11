@@ -27,6 +27,7 @@ import io
 import json
 import logging
 import math
+import mimetypes
 import threading
 import time
 from typing import Callable, Protocol
@@ -98,6 +99,11 @@ def _compute_origin(
         cx += (-d_body[0] / d_body[2]) * scale
         cy += (-d_body[1] / d_body[2]) * scale
     return cx, cy
+
+
+# Python's mimetypes only knows .webmanifest on some platforms (not on a
+# stock Windows registry or minimal Linux), and browsers want this type.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
 @web.middleware

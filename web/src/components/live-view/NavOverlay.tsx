@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import type { EnginePayload, NavData } from "@/lib/types";
+import { formatDistance } from "@/lib/screen";
 
 interface Props {
   state: EnginePayload;
@@ -17,39 +17,35 @@ function pickZone(nav: NavData): Zone {
   return "PUSH";
 }
 
-function formatDist(sep: number | null): string {
-  if (sep === null) return "--";
-  if (sep >= 1.0) return `${sep.toFixed(1)}°`;
-  return `${(sep * 60).toFixed(1)}'`;
-}
-
-/** Rounded background rect under text. */
-function Pill({
-  x, y, text, color = "rgba(255, 70, 70, 0.78)", bg = "rgba(40, 5, 5, 0.55)",
-  fontSize = 22,
-}: { x: number; y: number; text: string; color?: string; bg?: string; fontSize?: number }) {
-  const w = text.length * (fontSize * 0.55) + 12;
-  const h = fontSize + 6;
+/** Text on a dark rounded label so it reads over stars. */
+function Pill({ x, y, text, fontSize }: { x: number; y: number; text: string; fontSize: number }) {
+  const w = text.length * (fontSize * 0.6) + 14;
+  const h = fontSize + 8;
   return (
     <g>
-      <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={4} fill={bg} />
-      <text x={x} y={y} textAnchor="middle" dominantBaseline="middle"
-            fontSize={fontSize} fontWeight="bold" fill={color}>
+      <rect
+        x={x - w / 2} y={y - h / 2} width={w} height={h} rx={5}
+        style={{ fill: "var(--overlay-label-bg)" }}
+      />
+      <text
+        x={x} y={y} textAnchor="middle" dominantBaseline="middle"
+        fontSize={fontSize} fontWeight="bold" className="fill-overlay-strong"
+      >
         {text}
       </text>
     </g>
   );
 }
 
-/** PUSH/CONVERGE reticle: ring + cross arms */
+/** Eyepiece reticle: ring + cross arms. */
 function Reticle({
-  cx, cy, color, ringR, armOuter, armInner, strokeW,
+  cx, cy, ringR, armOuter, armInner, strokeW, className,
 }: {
-  cx: number; cy: number; color: string;
-  ringR: number; armOuter: number; armInner: number; strokeW: number;
+  cx: number; cy: number; ringR: number; armOuter: number; armInner: number;
+  strokeW: number; className: string;
 }) {
   return (
-    <g stroke={color} strokeWidth={strokeW} fill="none">
+    <g strokeWidth={strokeW} fill="none" className={className}>
       <circle cx={cx} cy={cy} r={ringR} />
       <line x1={cx - armOuter} y1={cy} x2={cx - armInner} y2={cy} />
       <line x1={cx + armInner} y1={cy} x2={cx + armOuter} y2={cy} />
@@ -59,84 +55,59 @@ function Reticle({
   );
 }
 
-/** Comet-style arrow: leading polygon at full opacity, fading ghosts trailing
- * behind. angleDeg is clockwise from up (the polygon's tip points to (0,-22)
- * in its local frame; +y in that frame is "behind" the tip). */
-function CometArrow({
-  cx, cy, angleDeg, color = "rgba(255, 100, 50, 1)",
-}: { cx: number; cy: number; angleDeg: number; color?: string }) {
-  const ghosts = [0, 1, 2, 3, 4];
+/** Comet-style arrow: a solid head with fading copies trailing behind.
+ * angleDeg is clockwise from up (the tip points to (0,-22) locally). */
+function CometArrow({ cx, cy, angleDeg, scale }: { cx: number; cy: number; angleDeg: number; scale: number }) {
+  const ghosts = [4, 3, 2, 1, 0];
   return (
-    <g transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}>
-      {ghosts
-        .slice()
-        .reverse()
-        .map((i) => (
-          <g
-            key={i}
-            transform={`translate(0 ${i * 9})`}
-            style={{ opacity: 1 - i * 0.18 }}
-          >
-            <polygon
-              points="0,-22 -11,0 -3,0 -3,18 3,18 3,0 11,0"
-              fill={color}
-            />
-          </g>
-        ))}
+    <g transform={`translate(${cx}, ${cy}) rotate(${angleDeg}) scale(${scale})`} className="fill-overlay-strong">
+      {ghosts.map((i) => (
+        <polygon
+          key={i}
+          transform={`translate(0 ${i * 9})`}
+          opacity={1 - i * 0.18}
+          points="0,-22 -11,0 -3,0 -3,18 3,18 3,0 11,0"
+        />
+      ))}
     </g>
   );
 }
 
 export function NavOverlay({ state }: Props) {
   const nav = state.nav;
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    if (!nav?.active) return;
-    const id = setInterval(() => setTick((t) => (t + 1) % 1000), 50);
-    return () => clearInterval(id);
-  }, [nav?.active]);
-
   if (!nav || !nav.active) return null;
 
   const zone = pickZone(nav);
   const ox = state.origin_x;
   const oy = state.origin_y;
+  // Sized so text stays >= 12 px on a 1280 px frame shown 360 px wide (a
+  // phone); scales with the frame's resolution.
+  const k = state.image_w / 1280;
+  const fs = 48 * k;
 
   if (zone === "PUSH") {
     if (nav.edge_x === null || nav.edge_y === null || nav.edge_angle_deg === null) {
       return null;
     }
     const angleRad = (nav.edge_angle_deg * Math.PI) / 180;
-    // Arrow tip 68px inward from edge — same as DPG behavior
-    const tipX = nav.edge_x - Math.sin(angleRad) * 68;
-    const tipY = nav.edge_y + Math.cos(angleRad) * 68;
-    // Perpendicular to the push direction (eyepiece → comet tip), used to
-    // place the distance label off to one side so it doesn't overlap the
-    // arrow body.
+    // Arrow tip 68 px in from the frame edge.
+    const tipX = nav.edge_x - Math.sin(angleRad) * 90 * k;
+    const tipY = nav.edge_y + Math.cos(angleRad) * 90 * k;
+    // Distance label sits off to one side of the push line.
     const dx = tipX - ox;
     const dy = tipY - oy;
     const len = Math.hypot(dx, dy) || 1;
-    const perpX = -dy / len;
-    const perpY = dx / len;
-    const labelOffset = 38;
-    const labelX = tipX + perpX * labelOffset;
-    const labelY = tipY + perpY * labelOffset;
+    const labelX = tipX + (-dy / len) * 60 * k;
+    const labelY = tipY + (dx / len) * 60 * k;
     return (
       <g>
-        <Reticle cx={ox} cy={oy} color="rgba(120, 25, 25, 0.63)"
-                 ringR={12} armInner={4} armOuter={20} strokeW={1} />
-        {/* Guide line extends all the way to the frame edge, not just to
-            the comet tip — the comet sits on the line near the edge. */}
+        <Reticle cx={ox} cy={oy} ringR={12} armInner={4} armOuter={20} strokeW={1}
+                 className="stroke-overlay-dim" />
         <line x1={ox} y1={oy} x2={nav.edge_x} y2={nav.edge_y}
-              stroke="rgba(255, 100, 50, 0.9)" strokeWidth={2}
-              strokeDasharray="8 6"
-              className="pushnav-marching-ants" />
-        <CometArrow cx={tipX} cy={tipY}
-                    angleDeg={nav.edge_angle_deg} />
-        <Pill x={labelX} y={labelY}
-              text={formatDist(nav.separation_deg)}
-              color="rgba(255, 100, 50, 1)" />
+              strokeWidth={2} strokeDasharray="8 6"
+              className="stroke-overlay-strong pushnav-marching-ants" />
+        <CometArrow cx={tipX} cy={tipY} angleDeg={nav.edge_angle_deg} scale={1.6 * k} />
+        <Pill x={labelX} y={labelY} text={formatDistance(nav.separation_deg)} fontSize={fs} />
       </g>
     );
   }
@@ -145,73 +116,46 @@ export function NavOverlay({ state }: Props) {
     if (nav.pixel_x === null || nav.pixel_y === null) return null;
     const tx = nav.pixel_x;
     const ty = nav.pixel_y;
-    // 0.15° lock-zone ring
+    // Ring showing the lock zone around the eyepiece centre.
     const scale = state.image_w / (2 * Math.tan((state.fov_h_deg / 2) * (Math.PI / 180)));
     const lockR = Math.tan(LOCKED_THRESHOLD_DEG * (Math.PI / 180)) * scale;
-    // Perpendicular unit vector for label placement (one of two possible —
-    // pick whichever, labels sit consistently on one side of the line).
-    // Rotated 90° CCW from direction-to-target in screen coords.
     const dx = tx - ox;
     const dy = ty - oy;
     const len = Math.hypot(dx, dy) || 1;
     const perpX = -dy / len;
     const perpY = dx / len;
-    const distLabelOffset = 38;
-    const nameLabelOffset = 64;
-    const distLabelX = tx + perpX * distLabelOffset;
-    const distLabelY = ty + perpY * distLabelOffset;
-    const nameLabelX = tx + perpX * nameLabelOffset;
-    const nameLabelY = ty + perpY * nameLabelOffset;
     return (
       <g>
-        <Reticle cx={ox} cy={oy} color="rgba(200, 50, 50, 0.78)"
-                 ringR={14} armInner={5} armOuter={24} strokeW={2} />
-        <circle cx={ox} cy={oy} r={lockR}
-                stroke="rgba(200, 50, 50, 0.24)" strokeWidth={1} fill="none" />
-        <line x1={ox} y1={oy} x2={tx} y2={ty}
-              stroke="rgba(255, 70, 70, 0.78)" strokeWidth={1}
-              strokeDasharray="8 6"
-              className="pushnav-marching-ants" />
-        {/* Red circle marking the target's in-frame location. Outer <g>'s
-            translate animates so the marker glides smoothly between WS
-            updates. */}
-        <g
-          style={{
-            transform: `translate(${tx}px, ${ty}px)`,
-            transition: "transform 100ms linear",
-          }}
-        >
-          <circle cx={0} cy={0} r={18}
-                  stroke="rgba(255, 70, 70, 0.86)" strokeWidth={2} fill="none" />
-          <circle cx={0} cy={0} r={2}
-                  fill="rgba(255, 70, 70, 0.86)" />
+        <Reticle cx={ox} cy={oy} ringR={14} armInner={5} armOuter={24} strokeW={2}
+                 className="stroke-overlay" />
+        <circle cx={ox} cy={oy} r={lockR} strokeWidth={1} fill="none"
+                className="stroke-overlay-dim" />
+        <line x1={ox} y1={oy} x2={tx} y2={ty} strokeWidth={1} strokeDasharray="8 6"
+              className="stroke-overlay pushnav-marching-ants" />
+        {/* Target marker: glides between WebSocket updates. */}
+        <g style={{ transform: `translate(${tx}px, ${ty}px)`, transition: "transform 100ms linear" }}>
+          <circle cx={0} cy={0} r={18} strokeWidth={2} fill="none" className="stroke-overlay-strong" />
+          <circle cx={0} cy={0} r={2} className="fill-overlay-strong" />
         </g>
-        <Pill x={distLabelX} y={distLabelY}
-              text={formatDist(nav.separation_deg)}
-              color="rgba(255, 70, 70, 0.86)" />
+        <Pill x={tx + perpX * 50 * k} y={ty + perpY * 50 * k} text={formatDistance(nav.separation_deg)} fontSize={fs} />
         {nav.target_name && (
-          <Pill x={nameLabelX} y={nameLabelY} text={nav.target_name}
-                color="rgba(255, 70, 70, 0.86)" />
+          <Pill x={tx + perpX * 100 * k} y={ty + perpY * 100 * k} text={nav.target_name} fontSize={fs} />
         )}
       </g>
     );
   }
 
-  // LOCKED — pulsing concentric rings + center dot + ON TARGET text
-  const t = performance.now() / 1000;
-  const pulse = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin((t * 2 * Math.PI) / 1.2));
-  const alpha = pulse;
-  const color = `rgba(255, 120, 80, ${alpha.toFixed(3)})`;
+  // LOCKED: concentric rings + centre dot, gently pulsing.
   return (
     <g>
-      <circle cx={ox} cy={oy} r={20} stroke={color} strokeWidth={2} fill="none" />
-      <circle cx={ox} cy={oy} r={14} stroke={color} strokeWidth={3} fill="none" />
-      <circle cx={ox} cy={oy} r={8}  stroke={color} strokeWidth={2} fill="none" />
-      <circle cx={ox} cy={oy} r={4}  fill={color} />
-      {nav.target_name && (
-        <Pill x={ox} y={oy - 45} text={nav.target_name} color={color} />
-      )}
-      <Pill x={ox} y={oy + 45} text="ON TARGET" color={color} />
+      <g fill="none" className="stroke-overlay-strong animate-pulse">
+        <circle cx={ox} cy={oy} r={20} strokeWidth={2} />
+        <circle cx={ox} cy={oy} r={14} strokeWidth={3} />
+        <circle cx={ox} cy={oy} r={8} strokeWidth={2} />
+        <circle cx={ox} cy={oy} r={4} className="fill-overlay-strong" stroke="none" />
+      </g>
+      {nav.target_name && <Pill x={ox} y={oy - 60 * k} text={nav.target_name} fontSize={fs} />}
+      <Pill x={ox} y={oy + 60 * k} text="ON TARGET" fontSize={fs} />
     </g>
   );
 }

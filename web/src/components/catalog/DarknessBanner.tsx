@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { Button } from "@/components/ui/button";
+import { Alert, Button } from "@/components/ui";
 import { darknessAt } from "@/lib/astronomy";
+import { formatClock } from "./items";
 
 interface Props {
   location: { latitude: number; longitude: number };
@@ -9,10 +10,6 @@ interface Props {
   /** Applied observation-time offset in minutes. */
   appliedOffsetMin: number;
   onApply: (offsetMin: number) => void;
-}
-
-function hhmm(t: Date): string {
-  return `${t.getHours().toString().padStart(2, "0")}:${t.getMinutes().toString().padStart(2, "0")}`;
 }
 
 /** Warns when the chosen time isn't astronomically dark yet, with a jump to when it is. */
@@ -29,20 +26,20 @@ export function DarknessBanner({ location, evalAt, appliedOffsetMin, onApply }: 
     appliedOffsetMin + Math.ceil((target.getTime() - evalAt.getTime()) / 60_000 / 5) * 5;
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-primary/50 bg-primary/10 px-3 py-2 text-xs">
-      <div className="flex-1 min-w-0 leading-snug">
-        <span className="font-semibold text-foreground">
-          {info.status === "day" ? "Daytime" : "Twilight"} at {hhmm(evalAt)}.
-        </span>{" "}
-        <span className="text-muted-foreground">
-          {"darkFrom" in info
-            ? `The sky gets dark at ${hhmm(info.darkFrom)}. Until then, most of these objects won't show.`
-            : `The sky doesn't get fully dark tonight. It's darkest around ${hhmm(info.darkest)}, with the Sun ${Math.round(-info.darkestSunAltDeg)}° below the horizon.`}
-        </span>
-      </div>
-      <Button size="sm" variant="outline" className="shrink-0" onClick={() => onApply(jumpMin)}>
-        Show then
-      </Button>
-    </div>
+    <Alert
+      variant="warning"
+      title={`${info.status === "day" ? "Daytime" : "Twilight"} at ${formatClock(evalAt)}`}
+      action={
+        <Button variant="secondary" size="sm" onClick={() => onApply(jumpMin)}>
+          Show then
+        </Button>
+      }
+    >
+      <p className="text-label text-foreground">
+        {"darkFrom" in info
+          ? `The sky gets dark at ${formatClock(info.darkFrom)}. Until then, most of these objects won't show.`
+          : `The sky doesn't get fully dark tonight. It's darkest around ${formatClock(info.darkest)}, with the Sun ${Math.round(-info.darkestSunAltDeg)}° below the horizon.`}
+      </p>
+    </Alert>
   );
 }

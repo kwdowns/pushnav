@@ -1,92 +1,87 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEngineState } from "@/hooks/useEngineState";
-import { useView } from "@/hooks/useView";
 import { LiveView } from "@/components/live-view/LiveView";
-import { CameraControls } from "@/components/controls/CameraControls";
-import { Wizard } from "@/components/wizard/Wizard";
-import { Settings } from "@/components/settings/Settings";
-import { Connectivity } from "@/components/settings/Connectivity";
 import { Splash } from "@/components/splash/Splash";
-import { StateHeader } from "@/components/StateHeader";
-import { StepIndicator } from "@/components/StepIndicator";
-import { DebugPanel } from "@/components/debug/DebugPanel";
-import { WhatToSee } from "@/components/catalog/WhatToSee";
+import { TopBar } from "@/components/app/TopBar";
+import { StepArea } from "@/components/step/StepArea";
+import { Targets } from "@/components/catalog/Targets";
+import { DEFAULT_SHOW_STARS } from "@/components/settings/Settings";
 
 function useLocalStorageBool(key: string, defaultValue: boolean) {
   const [v, setV] = useState<boolean>(() => {
-    const saved = localStorage.getItem(key);
-    return saved === null ? defaultValue : saved === "true";
+    try {
+      const saved = localStorage.getItem(key);
+      return saved === null ? defaultValue : saved === "true";
+    } catch {
+      return defaultValue;
+    }
   });
   useEffect(() => {
-    localStorage.setItem(key, String(v));
+    try {
+      localStorage.setItem(key, String(v));
+    } catch {
+      // private mode / blocked storage: setting just isn't remembered
+    }
   }, [key, v]);
   return [v, setV] as const;
 }
 
+/**
+ * Publishes an element's height as `--col-h` so a sticky column taller than
+ * the viewport can stick by its bottom edge instead of hiding it.
+ */
+function useHeightVar<T extends HTMLElement>(mounted: boolean) {
+  const ref = useRef<T>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      el.style.setProperty("--col-h", `${el.offsetHeight}px`);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mounted]);
+  return ref;
+}
+
+// Below the app bar (which also pads for the notch).
+const BELOW_BAR = "var(--app-bar-h) + var(--safe-top)";
+
 export default function App() {
   const state = useEngineState();
-  const [showStars, setShowStars] = useLocalStorageBool("pushnav.show_stars", false);
-  const [view, setView] = useView();
+  const [showStars, setShowStars] = useLocalStorageBool("pushnav.show_stars", DEFAULT_SHOW_STARS);
+  const leftCol = useHeightVar<HTMLDivElement>(state !== null);
 
   return (
     <>
       <Splash state={state} />
       {state && (
-        <div className="bg-background text-foreground min-h-screen">
-          {/* Header + grid always span at least one viewport height. The grid
-              expands (flex-1) to consume any leftover space so any below-the-
-              fold content (DebugPanel) always starts past the viewport. */}
-          <section
-            className={
-              view === "catalog"
-                ? "min-h-screen lg:h-screen lg:overflow-hidden flex flex-col"
-                : "min-h-screen flex flex-col"
-            }
-          >
-            <div className="max-w-5xl mx-auto px-2 pt-2 w-full shrink-0">
-              <StateHeader state={state} view={view} onViewChange={setView} />
+        <div className="min-h-dvh bg-background text-foreground">
+          <TopBar state={state} showStars={showStars} setShowStars={setShowStars} />
+          <main className="mx-auto w-full max-w-app px-gutter pb-[max(1.5rem,var(--safe-bottom))] md:grid md:grid-cols-2 md:items-start md:gap-4 md:pt-3">
+            {/* Phone: `contents`, so the frame below sticks for the whole page.
+                md+: the column sticks under the bar; if it is taller than the
+                viewport it sticks by its bottom edge instead. */}
+            <div
+              ref={leftCol}
+              className="contents md:sticky md:z-sticky md:flex md:flex-col md:gap-3"
+              style={{ top: `min(calc(${BELOW_BAR} + 0.75rem), calc(100svh - var(--col-h, 0px) - 0.75rem))` }}
+            >
+              <div
+                className="sticky z-sticky -mx-3 bg-background px-3 pt-3 pb-3 md:static md:mx-0 md:p-0"
+                style={{ top: `calc(${BELOW_BAR})` }}
+              >
+                <LiveView state={state} showStars={showStars} className="md:[--frame-max-h:50svh]" />
+              </div>
+              <StepArea state={state} />
             </div>
-            {view === "navigation" ? (
-              <div className="grid md:grid-cols-3 gap-2 max-w-5xl mx-auto px-2 pt-3 pb-2 items-stretch w-full flex-1">
-                <div className="md:col-span-2 flex flex-col gap-2">
-                  <LiveView state={state} showStars={showStars} />
-                  <StepIndicator state={state} />
-                  {/* Wizard fills the remaining column height so its bottom
-                      aligns with the right column's Settings card. The
-                      [&>*]:flex-1 selector targets Wizard's direct DOM child
-                      (the Card or grid emitted by whichever step renders)
-                      and makes it flex-1 within this growing wrapper —
-                      essential for TrackingStep, whose two-card grid would
-                      otherwise leave dead space below it. */}
-                  <div className="flex-1 flex flex-col [&>*]:flex-1">
-                    <Wizard state={state} />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <CameraControls controls={state.controls} />
-                  <Connectivity state={state} />
-                  <Settings
-                    state={state}
-                    showStars={showStars}
-                    setShowStars={setShowStars}
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="max-w-5xl mx-auto px-2 pt-3 pb-2 w-full flex-1 min-h-0">
-                <WhatToSee
-                  state={state}
-                  onSwitchToNavigation={() => setView("navigation")}
-                />
-              </div>
-            )}
-          </section>
-          {state.dev_mode && (
-            <section className="max-w-5xl mx-auto px-2 pb-2 w-full">
-              <DebugPanel state={state} />
-            </section>
-          )}
+            <div className="mt-6 flex min-w-0 flex-col gap-3 md:mt-0">
+              <Targets
+                state={state}
+                onTargetSet={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              />
+            </div>
+          </main>
         </div>
       )}
     </>

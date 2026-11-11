@@ -1,10 +1,16 @@
 import { useState } from "react";
 import { RefreshCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, type ButtonVariant } from "@/components/ui";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
-export function RetryCameraButton() {
+/** Asks the engine to probe for the camera again; shows why it failed. */
+export function RetryCameraButton({
+  variant = "secondary",
+  label = "Retry camera",
+}: {
+  variant?: ButtonVariant;
+  label?: string;
+}) {
   const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onClick = async () => {
@@ -12,7 +18,7 @@ export function RetryCameraButton() {
     setRetrying(true);
     try {
       const { connected } = await api.retryCamera();
-      if (!connected) setError("Still not detected");
+      if (!connected) setError("Still not detected.");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -20,16 +26,12 @@ export function RetryCameraButton() {
     }
   };
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={onClick}
-      disabled={retrying}
-      title={error ?? "Retry camera detection"}
-      className="gap-1"
-    >
-      <RefreshCcw className={cn(retrying && "animate-spin")} />
-      {retrying ? "Detecting…" : "Retry camera"}
-    </Button>
+    <div className="flex flex-col items-start gap-1">
+      <Button variant={variant} size="sm" onClick={onClick} loading={retrying}>
+        {!retrying && <RefreshCcw aria-hidden />}
+        {retrying ? "Detecting…" : label}
+      </Button>
+      {error && <p className="text-label text-muted-foreground">{error}</p>}
+    </div>
   );
 }
