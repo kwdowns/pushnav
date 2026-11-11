@@ -87,9 +87,9 @@ For running [PushNav headless](rpi-headless.md) on a **Raspberry Pi 3A+**, with 
 
 ## Innomaker U20CAM-9281M Housing
 
-For the [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/), whose board is 32 × 32 mm instead of 25 mm. It is the v3 housing with a 58 mm shell and a 52 mm thread. The board stands on four 5 mm standoffs (4 × M2 × 6 screws), and the USB lead leaves through a slot in the back wall. It turns on the **v3 low mount** with the same M4 knob and insert. Print `housing_u20cam_base.stl`, `housing_u20cam_hood.stl` and, optionally, `housing_u20cam_cap.stl`, all without supports.
+For the [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/), whose board is 32 × 32 mm instead of 25 mm. It is the v3 housing with a 58 mm shell and a 52 mm thread. The board stands on four 6 mm standoffs (4 × M2 × 6 screws, with a lead-in funnel at each hole), and the USB lead leaves through a slot in the back wall. It turns on the **v3 low mount** with the same M4 knob and insert. Print `housing_u20cam_base.stl`, `housing_u20cam_hood.stl` and, optionally, `housing_u20cam_cap.stl`, all without supports.
 
-Before printing, measure the tallest part on the back of the board with the lead plugged in. If it is over 4.5 mm, raise `pcb_standoff_height` in `housing_u20cam.scad`.
+Before printing, measure the tallest part on the back of the board with the lead plugged in. If it is over 5.5 mm, raise `pcb_standoff_height` in `housing_u20cam.scad`.
 
 ## Tube Shoe and Pi 4 / 5 Tray
 

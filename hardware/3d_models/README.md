@@ -71,7 +71,7 @@ The box is generated with [YAPP_Box](https://github.com/mrWheel/YAPP_Box) (MIT, 
 
 ### Innomaker U20CAM-9281M housing (`housing_u20cam.scad`)
 
-For the [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/), an OV9281 camera on a bigger board: 32 × 32 mm with M2 holes on a 28 mm square, no white base, and a side-entry 1.25 mm 5-pin USB connector on the back of the board. It is the v3 housing (it `include`s `housing_v3.scad`) with a 58 mm shell and a 52 mm thread. The board stands on four 5 mm standoffs, and the lead leaves through a slot in the back wall at standoff height. The flat bottom, Ø30 seat face and M4 knob/insert are v3's, so it fits the **v3 low mount** (`housing_v3_mount.stl`). The hood keeps the same baffle and 1.25" cap band.
+For the [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m/), an OV9281 camera on a bigger board: 32 × 32 mm with M2 holes on a 28 mm square, no white base, and a side-entry 1.25 mm 5-pin USB connector on the back of the board. It is the v3 housing (it `include`s `housing_v3.scad`) with a 58 mm shell and a 52 mm thread. The board stands on four 6 mm standoffs, each with a lead-in funnel for its screw, and the lead leaves through a slot in the back wall at standoff height. The flat bottom, Ø30 seat face and M4 knob/insert are v3's, so it fits the **v3 low mount** (`housing_v3_mount.stl`). The hood keeps the same baffle and 1.25" cap band.
 
 | Part | STL | Flag |
 |------|-----|------|
@@ -79,7 +79,7 @@ For the [Innomaker U20CAM-9281M](https://www.inno-maker.com/product/u20cam-9281m
 | Hood | `housing_u20cam_hood.stl` | `U20_RENDER_HOOD` |
 | Dust cap (optional) | `housing_u20cam_cap.stl` | `U20_RENDER_CAP` |
 
-**Before printing**, measure the tallest part on the back of the board with the lead plugged in, and set `pcb_standoff_height` to a little more than that if it is over 4.5 mm.
+**Before printing**, measure the tallest part on the back of the board with the lead plugged in, and set `pcb_standoff_height` to a little more than that if it is over 5.5 mm.
 
 **Hardware:** 4 × M2 × 6 screws (self-tapping, or machine screws that cut their own thread in the 1.7 mm pilots), plus v3's M4 × 20 star knob and M4 × 6 insert.
 

@@ -88,26 +88,29 @@ back_flat_y     = 24;    // was 18 — the pocket is wider now
 
 pcb_hole_spacing    = 28;    // square hole pattern (vendor drawing)
 pcb_thickness       = 1.6;   // MEASURE
-pcb_standoff_height = 5;     // MEASURE — board back to floor; the 1.25 mm
-                             // side-entry connector stands ~3.5 mm
-standoff_dia        = 5;
+pcb_standoff_height = 6;     // MEASURE — board back to floor; the 1.25 mm
+                             // side-entry connector stands ~3.5 mm, and the
+                             // plugged-in lead needs about 1 mm more
+standoff_dia        = 5.5;
 m2_pilot_dia        = 1.7;   // M2 self-tap / thread-forming pilot
 m2_pilot_depth      = 7;
+m2_funnel_dia       = 3.2;   // 45° lead-in at the pilot's top: guides the
+                             // screw tip in and starts it straight
 
 u20_pocket_width    = 38;    // 32 board + 3 mm each side for the lead
 u20_pocket_radius   = 9;     // corner fillet — keeps the pocket inside the
                              // thread root (√2 × (19 − 9) + 9 = 23.1 < 23.4)
 
 cable_slot_width    = 12;    // passes the 1.25 mm 5-pin plug (~8 × 3.5)
-cable_slot_top      = 12;    // slot runs from the floor to this Z
+cable_slot_top      = 13;    // slot runs from the floor to this Z
 
 // ============================================================
 // DERIVED
 // ============================================================
 
 u20_floor_z  = base_floor_thickness;                      // 5
-pcb_bottom_z = u20_floor_z + pcb_standoff_height;         // 10
-pcb_top_z    = pcb_bottom_z + pcb_thickness;              // 11.6
+pcb_bottom_z = u20_floor_z + pcb_standoff_height;         // 11
+pcb_top_z    = pcb_bottom_z + pcb_thickness;              // 12.6
 thread_root_dia = lip_thread_dia - 2 * lip_thread_pitch / (2 * tan(lip_tooth_angle));
 
 assert(sqrt(2) * (u20_pocket_width / 2 - u20_pocket_radius) + u20_pocket_radius
@@ -156,6 +159,13 @@ module u20_base() {
             translate([x * pcb_hole_spacing / 2, y * pcb_hole_spacing / 2,
                        pcb_bottom_z - m2_pilot_depth])
                 cylinder(d = m2_pilot_dia, h = m2_pilot_depth + 1, $fn = 24);
+
+        // Lead-in funnels at the top of each pilot
+        for (x = [-1, 1], y = [-1, 1])
+            translate([x * pcb_hole_spacing / 2, y * pcb_hole_spacing / 2,
+                       pcb_bottom_z - (m2_funnel_dia - m2_pilot_dia) / 2])
+                cylinder(d1 = m2_pilot_dia, d2 = m2_funnel_dia,
+                         h = (m2_funnel_dia - m2_pilot_dia) / 2 + 0.01, $fn = 24);
 
         // Cable slot through the back wall (+Y)
         translate([-cable_slot_width / 2, 0, u20_floor_z])
