@@ -145,6 +145,10 @@ class Engine:
         self._lx200: Lx200Server | None = None
         self._webserver: WebServer | None = None
 
+        # Held while a wizard step runs. Web requests each run on their own
+        # thread, so a double tap would otherwise run the same step twice.
+        self._advance_lock = threading.Lock()
+
         # Sync state (two-phase calibration)
         self._sync_lock = threading.Lock()
         self._sync_error: str | None = None
@@ -767,7 +771,19 @@ class Engine:
         self._solver_thread.start()  # SYNC → WARMING_UP
 
     def step_advance(self) -> None:
-        """Advance the wizard: SETUP → SYNC → SYNC_CONFIRM → CALIBRATE → WARMING_UP, or stop."""
+        """Advance the wizard: SETUP → SYNC → SYNC_CONFIRM → CALIBRATE → WARMING_UP, or stop.
+
+        A press that arrives while another is still being handled is ignored.
+        """
+        if not self._advance_lock.acquire(blocking=False):
+            logger.info("step_advance ignored — previous press still running")
+            return
+        try:
+            self._step_advance()
+        finally:
+            self._advance_lock.release()
+
+    def _step_advance(self) -> None:
         state = self._state_machine.state
         logger.info("step_advance called, state=%s", state.value)
         # Every forward step needs camera frames. Only the "stop tracking"
